@@ -3120,8 +3120,12 @@ function doLogin(){
       .then(function(dr){
         if(dr.ok&&dr.datos){
           var d=dr.datos;
-          params=d.params||params;cuentas=d.cuentas||[];movimientos=d.movimientos||[];
-          asientos=d.asientos||[];nextId=d.nextId||1;trabajadores=d.trabajadores||[];
+          params=d.params||params;
+          // Solo reemplazar cuentas si hay datos (evitar sobreescribir con array vacío)
+          if(d.cuentas&&d.cuentas.length>0)cuentas=d.cuentas;
+          if(d.movimientos&&d.movimientos.length>0)movimientos=d.movimientos;
+          asientos=d.asientos||[];nextId=d.nextId||1;
+          trabajadores=d.trabajadores||[];
           liquidaciones=d.liquidaciones||{};migrarGrupIds();
         } else {
           resetearDatos();
