@@ -672,10 +672,10 @@ function autoGuardar(){
       })
       .then(function(r){return r.json();})
       .then(function(r){
-        if(r.ok)marcarGuardado('Guardado '+new Date().toLocaleTimeString('es-CL'));
-        else marcarGuardado('Error: '+(r.error||''));
+        if(r.ok)marcarGuardado('OK:'+r.msg+' kb='+r.kb+' fila='+r.fila);
+        else marcarGuardado('ERR:'+r.error);
       })
-      .catch(function(e){marcarGuardado('Sin conexion');});
+      .catch(function(e){marcarGuardado('CATCH:'+e.message);});
     }
   },1500);
 }
