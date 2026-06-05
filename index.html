@@ -3108,11 +3108,14 @@ function doLogin(){
   })
   .then(function(r){
     alert('Login HTTP: '+r.status);
-    return r.json();
+    return r.text();
   })
-  .then(function(resp){
-    btn.textContent='Ingresar al Sistema';btn.disabled=false;
-    alert('Login respuesta: '+JSON.stringify(resp).substring(0,100));
+  .then(function(txt){
+    alert('Texto crudo: '+txt.substring(0,200));
+    var resp;
+    try{resp=JSON.parse(txt);}catch(e){alert('No es JSON: '+e.message);return;}
+    var btn2=document.getElementById('l-btn');
+    btn2.textContent='Ingresar al Sistema';btn2.disabled=false;
     if(resp.ok){
       SESSION=resp.alumno;
       alert('SESSION asignada: '+SESSION.rut+' / '+SESSION.nombre);
