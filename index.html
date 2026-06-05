@@ -666,26 +666,13 @@ function autoGuardar(){
       var d={params:params,cuentas:cuentas,movimientos:movimientos,
         asientos:asientos,nextId:nextId,trabajadores:trabajadores,
         liquidaciones:liquidaciones,savedAt:new Date().toISOString()};
-      marcarGuardado('Enviando...');
       fetch(WEB_APP_URL,{
         method:'POST',
         body:JSON.stringify({accion:'guardar',rut:SESSION.rut,datos:d})
       })
-      .then(function(r){
-        marcarGuardado('HTTP '+r.status+' recibido');
-        return r.text();
-      })
-      .then(function(txt){
-        marcarGuardado('Respuesta: '+txt.substring(0,50));
-        try{
-          var r=JSON.parse(txt);
-          if(r.ok)marcarGuardado('Guardado OK '+new Date().toLocaleTimeString('es-CL'));
-          else marcarGuardado('Error servidor: '+r.error);
-        }catch(e){marcarGuardado('Error parse: '+txt.substring(0,30));}
-      })
-      .catch(function(e){
-        marcarGuardado('Error fetch: '+e.message);
-      });
+      .then(function(r){return r.text();})
+      .then(function(txt){alert('Respuesta servidor:\n'+txt.substring(0,200));})
+      .catch(function(e){alert('Error fetch:\n'+e.message);});
     }
   },1500);
 }
