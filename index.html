@@ -662,6 +662,7 @@ function autoGuardar(){
   if(autoSaveTimer)clearTimeout(autoSaveTimer);
   autoSaveTimer=setTimeout(function(){
     guardarDatos();
+    alert('autoGuardar: SESSION='+(SESSION?SESSION.rut:'NULL')+' URL='+(WEB_APP_URL?'OK':'NO'));
     if(SESSION&&WEB_APP_URL){
       var d={params:params,cuentas:cuentas,movimientos:movimientos,
         asientos:asientos,nextId:nextId,trabajadores:trabajadores,
@@ -3110,6 +3111,7 @@ function doLogin(){
     btn.textContent='Ingresar al Sistema';btn.disabled=false;
     if(resp.ok){
       SESSION=resp.alumno;
+      alert('SESSION asignada: '+SESSION.rut+' / '+SESSION.nombre);
       // Cargar datos del alumno
       fetch(WEB_APP_URL,{method:'POST',body:JSON.stringify({accion:'cargar',rut:SESSION.rut})})
       .then(function(r){return r.json();})
