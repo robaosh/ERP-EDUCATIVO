@@ -3106,9 +3106,13 @@ function doLogin(){
     method:'POST',
     body:JSON.stringify({accion:'login',rut:rut,pin:pin})
   })
-  .then(function(r){return r.json();})
+  .then(function(r){
+    alert('Login HTTP: '+r.status);
+    return r.json();
+  })
   .then(function(resp){
     btn.textContent='Ingresar al Sistema';btn.disabled=false;
+    alert('Login respuesta: '+JSON.stringify(resp).substring(0,100));
     if(resp.ok){
       SESSION=resp.alumno;
       alert('SESSION asignada: '+SESSION.rut+' / '+SESSION.nombre);
@@ -3135,9 +3139,10 @@ function doLogin(){
       err.textContent=resp.error||'Error al ingresar';err.style.display='block';
     }
   })
-  .catch(function(){
+  .catch(function(e){
     btn.textContent='Ingresar al Sistema';btn.disabled=false;
-    err.textContent='Error de conexion';err.style.display='block';
+    alert('Error fetch login: '+e.message);
+    err.textContent='Error: '+e.message;err.style.display='block';
   });
 }
 
