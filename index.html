@@ -666,16 +666,26 @@ function autoGuardar(){
       var d={params:params,cuentas:cuentas,movimientos:movimientos,
         asientos:asientos,nextId:nextId,trabajadores:trabajadores,
         liquidaciones:liquidaciones,savedAt:new Date().toISOString()};
+      marcarGuardado('Enviando...');
       fetch(WEB_APP_URL,{
         method:'POST',
         body:JSON.stringify({accion:'guardar',rut:SESSION.rut,datos:d})
       })
-      .then(function(r){return r.json();})
       .then(function(r){
-        if(r.ok)marcarGuardado('Guardado '+new Date().toLocaleTimeString('es-CL'));
-        else marcarGuardado('Error: '+r.error);
+        marcarGuardado('HTTP '+r.status+' recibido');
+        return r.text();
       })
-      .catch(function(e){marcarGuardado('Error conexion');console.log(e);});
+      .then(function(txt){
+        marcarGuardado('Respuesta: '+txt.substring(0,50));
+        try{
+          var r=JSON.parse(txt);
+          if(r.ok)marcarGuardado('Guardado OK '+new Date().toLocaleTimeString('es-CL'));
+          else marcarGuardado('Error servidor: '+r.error);
+        }catch(e){marcarGuardado('Error parse: '+txt.substring(0,30));}
+      })
+      .catch(function(e){
+        marcarGuardado('Error fetch: '+e.message);
+      });
     }
   },1500);
 }
