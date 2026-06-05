@@ -3157,6 +3157,522 @@ function cerrarSesion(){
   document.getElementById('l-pin').value='';
   resetearDatos();renderPlan();renderBalance();actualizarStatus();
 }
+// ══════════════════════════════════════════════════════════════
+// MÓDULO CARPETA LABORAL — ERP Educativo Liceo Comercial
+// Pegar este bloque COMPLETO dentro del <script> del ERP,
+// justo ANTES de la línea  </script>  (al final del archivo).
+//
+// No requiere cambios en la persistencia ni en el Apps Script:
+// los documentos se guardan dentro de cada trabajador (t.carpeta),
+// y "trabajadores" ya viaja en localStorage, export/import y servidor.
+//
+// El botón 📁 "Carpeta Laboral" se agrega SOLO a la nómina (RR.HH.).
+// NO hay que editar ninguna otra función. Solo pegar este bloque.
+// ══════════════════════════════════════════════════════════════
+
+// Definición de los documentos de la carpeta
+var CL_DOCS = [
+  {k:'contrato',      g:'vigente', icon:'📄', label:'Contrato de Trabajo'},
+  {k:'anexo',         g:'vigente', icon:'📎', label:'Anexo de Contrato'},
+  {k:'pacto_he',      g:'vigente', icon:'⏱️', label:'Pacto de Horas Extraordinarias'},
+  {k:'riesgos',       g:'vigente', icon:'⚠️', label:'Registro de Riesgos Laborales (Obligación de Informar)'},
+  {k:'epp',           g:'vigente', icon:'🦺', label:'Entrega de Equipos de Protección Personal (EPP)'},
+  {k:'riohs',         g:'vigente', icon:'📕', label:'Registro de Entrega del RIOHS'},
+  {k:'feriado',       g:'vigente', icon:'🏖️', label:'Comprobante de Feriado y Permisos'},
+  {k:'carta_despido', g:'termino', icon:'✉️', label:'Carta de Aviso de Término de Contrato'},
+  {k:'finiquito',     g:'termino', icon:'🤝', label:'Finiquito'}
+];
+
+// Datos del empleador (configurables desde el modal). Fallback a la empresa de ejemplo.
+function clEmpleador(){
+  var p = (typeof params==='object'&&params)?params:{};
+  return {
+    nombre:   p.empNombre   || 'Comercial Los Argonautas Ltda.',
+    rut:      p.empRut      || '76.543.210-K',
+    giro:     p.empGiro     || 'Comercio',
+    direccion:p.empDir      || '',
+    comuna:   p.empComuna   || 'Viña del Mar',
+    rep:      p.empRep      || '',
+    repRut:   p.empRepRut   || '',
+    repCargo: p.empRepCargo || 'Representante Legal'
+  };
+}
+
+// Asegura que el trabajador tenga el objeto carpeta
+function clEnsure(t){ if(!t.carpeta) t.carpeta = {}; return t.carpeta; }
+
+// Cuenta documentos completados (para el badge del botón)
+function clCount(t){
+  if(!t||!t.carpeta) return '0/'+CL_DOCS.length;
+  var n=0;
+  CL_DOCS.forEach(function(d){ if(t.carpeta[d.k] && t.carpeta[d.k].completado) n++; });
+  return n+'/'+CL_DOCS.length;
+}
+
+function clHoy(){ return new Date().toLocaleDateString('es-CL'); }
+function clBuscaTrab(id){ return trabajadores.find(function(x){return x.id===id;}); }
+
+// ── Definición de campos por documento (con prellenado) ─────────
+function clCampos(k,t,emp){
+  switch(k){
+    case 'contrato': return [
+      {k:'ciudad',   label:'Ciudad',                 type:'text', val:emp.comuna},
+      {k:'fecha',    label:'Fecha del contrato',     type:'text', val:t.ingreso||clHoy(), ph:'DD/MM/AAAA'},
+      {k:'cargo',    label:'Cargo',                  type:'text', val:t.cargo||''},
+      {k:'funciones',label:'Funciones del cargo',    type:'textarea', full:true, val:''},
+      {k:'lugar',    label:'Lugar de trabajo',       type:'text', full:true, val:emp.direccion},
+      {k:'jornada',  label:'Jornada',                type:'text', val:'45 horas semanales'},
+      {k:'horario',  label:'Horario',                type:'text', val:'Lun a Vie 08:30 a 18:00 hrs'},
+      {k:'tipo',     label:'Tipo de contrato',       type:'select', val:t.contrato||'Indefinido', options:['Indefinido','Plazo Fijo','Por Obra o Faena']},
+      {k:'inicio',   label:'Fecha de inicio',        type:'text', val:t.ingreso||'', ph:'DD/MM/AAAA'},
+      {k:'termino',  label:'Fecha de término (si aplica)', type:'text', val:t.termino||'', ph:'DD/MM/AAAA'},
+      {k:'sueldo',   label:'Sueldo base mensual ($)',type:'number', val:t.sueldo||0},
+      {k:'gratif',   label:'Gratificación',          type:'text', val:'Art. 50 Código del Trabajo (25% con tope mensual)'},
+      {k:'pago',     label:'Forma de pago',          type:'text', val:'Mensual, mediante transferencia bancaria'}
+    ];
+    case 'anexo': return [
+      {k:'ciudad',     label:'Ciudad',                  type:'text', val:emp.comuna},
+      {k:'fecha',      label:'Fecha del anexo',         type:'text', val:clHoy(), ph:'DD/MM/AAAA'},
+      {k:'fechaContrato',label:'Fecha contrato original',type:'text', val:t.ingreso||'', ph:'DD/MM/AAAA'},
+      {k:'clausula',   label:'Cláusula que se modifica',type:'text', full:true, val:''},
+      {k:'anterior',   label:'Texto anterior',          type:'textarea', full:true, val:''},
+      {k:'nuevo',      label:'Texto nuevo (modificación)',type:'textarea', full:true, val:''},
+      {k:'vigencia',   label:'Rige a partir de',        type:'text', val:clHoy(), ph:'DD/MM/AAAA'}
+    ];
+    case 'pacto_he': return [
+      {k:'ciudad',     label:'Ciudad',                       type:'text', val:emp.comuna},
+      {k:'fecha',      label:'Fecha del pacto',              type:'text', val:clHoy(), ph:'DD/MM/AAAA'},
+      {k:'horas',      label:'Horas extra diarias pactadas', type:'number', val:2, hint:'Máximo legal: 2 horas diarias'},
+      {k:'distrib',    label:'Distribución',                 type:'text', full:true, val:'Según necesidades operativas, previa coordinación'},
+      {k:'desde',      label:'Vigencia desde',               type:'text', val:clHoy(), ph:'DD/MM/AAAA'},
+      {k:'hasta',      label:'Vigencia hasta',               type:'text', val:'', ph:'DD/MM/AAAA', hint:'Máximo 3 meses, renovable'},
+      {k:'recargo',    label:'Recargo',                      type:'text', val:'50% sobre el valor de la hora ordinaria'}
+    ];
+    case 'riesgos': return [
+      {k:'ciudad',       label:'Ciudad',                    type:'text', val:emp.comuna},
+      {k:'fecha',        label:'Fecha',                     type:'text', val:clHoy(), ph:'DD/MM/AAAA'},
+      {k:'puesto',       label:'Puesto de trabajo',         type:'text', val:t.cargo||''},
+      {k:'riesgos',      label:'Riesgos del puesto',        type:'textarea', full:true, val:'Caídas a nivel y desnivel; sobreesfuerzos; uso de equipos eléctricos; trabajo prolongado frente a pantalla.'},
+      {k:'consecuencias',label:'Posibles consecuencias',    type:'textarea', full:true, val:'Contusiones, esguinces, lumbago, fatiga visual.'},
+      {k:'medidas',      label:'Medidas preventivas',       type:'textarea', full:true, val:'Mantener orden y aseo; usar EPP; respetar pausas; manipulación manual de cargas según norma.'},
+      {k:'metodos',      label:'Métodos de trabajo correctos',type:'textarea', full:true, val:'Seguir procedimientos internos e instrucciones del supervisor.'}
+    ];
+    case 'epp': return [
+      {k:'fecha',     label:'Fecha de entrega',  type:'text', val:clHoy(), ph:'DD/MM/AAAA'},
+      {k:'puesto',    label:'Puesto',            type:'text', val:t.cargo||''},
+      {k:'elementos', label:'Elementos entregados (uno por línea)', type:'textarea', full:true, val:'Casco de seguridad — 1\nGuantes de protección — 1 par\nZapatos de seguridad — 1 par'},
+      {k:'obs',       label:'Observaciones',     type:'textarea', full:true, val:''}
+    ];
+    case 'riohs': return [
+      {k:'fecha',    label:'Fecha de entrega',           type:'text', val:clHoy(), ph:'DD/MM/AAAA'},
+      {k:'version',  label:'Versión / Año del Reglamento',type:'text', val:String(new Date().getFullYear())},
+      {k:'medio',    label:'Medio de entrega',           type:'select', val:'Físico (impreso)', options:['Físico (impreso)','Digital (correo)']}
+    ];
+    case 'feriado': return [
+      {k:'tipo',         label:'Tipo',            type:'select', val:'Feriado Legal', options:['Feriado Legal','Permiso con goce de sueldo','Permiso sin goce de sueldo','Permiso administrativo']},
+      {k:'desde',        label:'Desde',           type:'text', val:'', ph:'DD/MM/AAAA'},
+      {k:'hasta',        label:'Hasta',           type:'text', val:'', ph:'DD/MM/AAAA'},
+      {k:'dias',         label:'Días hábiles',    type:'number', val:0},
+      {k:'saldoAnt',     label:'Saldo anterior (días)',  type:'number', val:0},
+      {k:'saldoPos',     label:'Saldo posterior (días)', type:'number', val:0},
+      {k:'fechaSol',     label:'Fecha de solicitud',     type:'text', val:clHoy(), ph:'DD/MM/AAAA'},
+      {k:'motivo',       label:'Motivo / Observación',   type:'text', full:true, val:''}
+    ];
+    case 'carta_despido': return [
+      {k:'ciudad',   label:'Ciudad',           type:'text', val:emp.comuna},
+      {k:'fecha',    label:'Fecha de la carta',type:'text', val:clHoy(), ph:'DD/MM/AAAA'},
+      {k:'causal',   label:'Causal legal',     type:'select', full:true, val:'Art. 161 — Necesidades de la empresa',
+        options:[
+          'Art. 159 N°2 — Renuncia del trabajador',
+          'Art. 159 N°4 — Vencimiento del plazo convenido',
+          'Art. 159 N°5 — Conclusión del trabajo o servicio',
+          'Art. 160 — Caducidad por conducta del trabajador',
+          'Art. 161 — Necesidades de la empresa',
+          'Art. 161 — Desahucio del empleador'
+        ]},
+      {k:'hechos',   label:'Hechos / fundamento de la causal', type:'textarea', full:true, val:''},
+      {k:'termino',  label:'Fecha de término de la relación',  type:'text', val:t.termino||'', ph:'DD/MM/AAAA'},
+      {k:'cotiz',    label:'Estado de cotizaciones',           type:'text', full:true, val:'Cotizaciones previsionales pagadas y al día (se adjuntan certificados).'}
+    ];
+    case 'finiquito': return [
+      {k:'ciudad',     label:'Ciudad',                 type:'text', val:emp.comuna},
+      {k:'fecha',      label:'Fecha del finiquito',    type:'text', val:clHoy(), ph:'DD/MM/AAAA'},
+      {k:'ingreso',    label:'Fecha de ingreso',       type:'text', val:t.ingreso||'', ph:'DD/MM/AAAA'},
+      {k:'termino',    label:'Fecha de término',       type:'text', val:t.termino||'', ph:'DD/MM/AAAA'},
+      {k:'causal',     label:'Causal de término',      type:'text', full:true, val:''},
+      {k:'remPend',    label:'Remuneración pendiente ($)',      type:'number', val:0},
+      {k:'feriadoProp',label:'Feriado proporcional ($)',        type:'number', val:0},
+      {k:'indemAviso', label:'Indemnización sustitutiva del aviso previo ($)', type:'number', val:0},
+      {k:'indemAnios', label:'Indemnización por años de servicio ($)',         type:'number', val:0},
+      {k:'otros',      label:'Otros haberes ($)',      type:'number', val:0},
+      {k:'descuentos', label:'Descuentos ($)',         type:'number', val:0}
+    ];
+  }
+  return [];
+}
+
+// ── Modal principal: la carpeta del trabajador ──────────────────
+function abrirCarpetaLaboral(id){
+  var t = clBuscaTrab(id);
+  if(!t) return;
+  clEnsure(t);
+  var emp = clEmpleador();
+  var empIncompleto = !emp.nombre || !emp.rut;
+
+  function fila(d){
+    var done = t.carpeta[d.k] && t.carpeta[d.k].completado;
+    var pill = done
+      ? '<span style="background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-b);border-radius:99px;padding:1px 9px;font-size:10px;font-weight:bold">✓ Ingresado</span>'
+      : '<span style="background:var(--red-bg);color:var(--red);border:1px solid var(--red-b);border-radius:99px;padding:1px 9px;font-size:10px;font-weight:bold">✗ Falta</span>';
+    var color = done ? 'var(--blue)' : 'var(--red)';
+    var btnDescargar = done
+      ? '<button onclick="clImprimirDoc('+id+',\''+d.k+'\')" title="Descargar / Imprimir" style="background:#1A1A2E;border:none;color:#fff;border-radius:2px;padding:2px 8px;cursor:pointer;font-size:10px;font-family:inherit;margin-left:6px">🖨 PDF</button>'
+      : '';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #DDD;border-left:4px solid '+color+';border-radius:3px;margin-bottom:5px;background:'+(done?'#F5F8FF':'#FFF6F6')+'">'
+      + '<span style="font-size:16px">'+d.icon+'</span>'
+      + '<span style="flex:1;font-weight:bold;font-size:11px;color:'+color+';cursor:pointer" onclick="clAbrirDoc('+id+',\''+d.k+'\')">'+d.label+'</span>'
+      + pill + btnDescargar
+      + '<button onclick="clAbrirDoc('+id+',\''+d.k+'\')" style="background:var(--blue-bg);border:1px solid var(--blue-b);border-radius:2px;padding:2px 8px;cursor:pointer;font-size:10px;font-family:inherit;color:var(--blue);font-weight:bold">'+(done?'✏ Editar':'+ Llenar')+'</button>'
+      + '</div>';
+  }
+
+  var vigentes = CL_DOCS.filter(function(d){return d.g==='vigente';}).map(fila).join('');
+  var termino  = CL_DOCS.filter(function(d){return d.g==='termino';}).map(fila).join('');
+
+  var avisoEmp = empIncompleto
+    ? '<div style="background:var(--amber-bg);border:1px solid var(--amber-b);border-radius:3px;padding:6px 10px;font-size:11px;color:var(--amber);margin-bottom:10px">⚠️ Faltan los datos de la empresa. Complétalos una vez con el botón <strong>⚙ Datos de la empresa</strong> para que se prellenen en todos los documentos.</div>'
+    : '';
+
+  var html =
+  '<div class="modal-overlay" onclick="if(event.target===this)cerrarModal()">'
+  + '<div class="modal" style="max-width:640px;width:96vw">'
+  + '<div class="modal-title" style="background:linear-gradient(to bottom,#5080D0,#3060C0)">'
+  + '📁 Carpeta Laboral — '+t.nombre
+  + '<button onclick="cerrarModal()" style="background:rgba(255,255,255,.2);border:none;color:#fff;cursor:pointer;font-size:14px;padding:0 4px">✕</button>'
+  + '</div>'
+  + '<div class="modal-body">'
+  + avisoEmp
+  + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:11px;color:var(--text2)">'
+  + '<span><strong>Empleador:</strong> '+(emp.nombre||'— sin definir —')+' · '+(emp.rut||'')+'</span>'
+  + '<button onclick="clEditarEmpleador('+id+')" class="btn btn-s" style="font-size:10px;padding:2px 8px">⚙ Datos de la empresa</button>'
+  + '</div>'
+  + '<div style="font-weight:bold;font-size:11px;color:var(--blue);border-bottom:2px solid var(--blue-b);padding-bottom:3px;margin-bottom:8px">📂 Documentos de la relación laboral vigente</div>'
+  + vigentes
+  + '<div style="font-weight:bold;font-size:11px;color:var(--red);border-bottom:2px solid var(--red-b);padding-bottom:3px;margin:14px 0 8px">⛔ Término de la relación laboral</div>'
+  + termino
+  + '<div style="background:#FFF8E0;border:1px solid var(--amber-b);border-radius:3px;padding:7px 10px;font-size:10px;color:var(--amber);margin-top:12px">📌 <strong>Nota didáctica:</strong> estos son documentos formativos. La carta de despido y el finiquito tienen requisitos legales estrictos (causales, plazos, ratificación ante notario o Inspección del Trabajo); si se usaran de forma real, revísalos con RR.HH. o un abogado antes de firmar.</div>'
+  + '</div>'
+  + '<div class="modal-footer" style="justify-content:space-between">'
+  + '<button class="btn btn-ok" onclick="clImprimirCarpeta('+id+')">📦 Descargar carpeta completa (PDF)</button>'
+  + '<button class="btn btn-s" onclick="cerrarModal()">Cerrar</button>'
+  + '</div>'
+  + '</div></div>';
+
+  document.getElementById('modal-container').innerHTML = html;
+}
+
+// ── Modal: formulario editable de un documento ──────────────────
+function clAbrirDoc(idTrab,k){
+  var t = clBuscaTrab(idTrab); if(!t) return;
+  clEnsure(t);
+  var emp = clEmpleador();
+  var def = CL_DOCS.find(function(d){return d.k===k;});
+  var guardado = (t.carpeta[k] && t.carpeta[k].datos) ? t.carpeta[k].datos : null;
+  var campos = clCampos(k,t,emp);
+
+  var inputs = campos.map(function(c){
+    var val = (guardado && guardado[c.k]!==undefined) ? guardado[c.k] : c.val;
+    var ctrl;
+    if(c.type==='textarea'){
+      ctrl = '<textarea data-clfield="'+c.k+'" rows="3" style="border:1px solid var(--border);border-radius:2px;padding:4px 6px;font-size:11px;font-family:inherit;resize:vertical">'+(val||'').toString().replace(/</g,'&lt;')+'</textarea>';
+    } else if(c.type==='select'){
+      var opts = c.options.map(function(o){return '<option'+(o===val?' selected':'')+'>'+o+'</option>';}).join('');
+      ctrl = '<select data-clfield="'+c.k+'" style="border:1px solid var(--border);border-radius:2px;padding:4px 6px;font-size:11px;font-family:inherit">'+opts+'</select>';
+    } else {
+      var tp = c.type==='number'?'number':'text';
+      ctrl = '<input data-clfield="'+c.k+'" type="'+tp+'" value="'+(val!==undefined&&val!==null?String(val).replace(/"/g,'&quot;'):'')+'"'+(c.ph?' placeholder="'+c.ph+'"':'')+' style="border:1px solid var(--border);border-radius:2px;padding:4px 6px;font-size:11px;font-family:inherit">';
+    }
+    var hint = c.hint?'<span style="font-size:9px;color:var(--text3)">'+c.hint+'</span>':'';
+    return '<div class="field" style="'+(c.full?'grid-column:1/-1':'')+'"><label>'+c.label+'</label>'+ctrl+hint+'</div>';
+  }).join('');
+
+  var yaCompletado = t.carpeta[k] && t.carpeta[k].completado;
+
+  var html =
+  '<div class="modal-overlay" onclick="if(event.target===this)cerrarModal()">'
+  + '<div class="modal" style="max-width:600px;width:96vw">'
+  + '<div class="modal-title">'+def.icon+' '+def.label
+  + '<button onclick="cerrarModal()" style="background:rgba(255,255,255,.2);border:none;color:#fff;cursor:pointer;font-size:14px;padding:0 4px">✕</button>'
+  + '</div>'
+  + '<div class="modal-body">'
+  + '<div style="background:#E8F0FF;border:1px solid var(--blue-b);border-radius:3px;padding:6px 10px;font-size:10px;color:var(--blue);margin-bottom:10px">Trabajador: <strong>'+t.nombre+'</strong> ('+t.rut+') · Empleador: <strong>'+emp.nombre+'</strong></div>'
+  + '<div id="cl-form" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+inputs+'</div>'
+  + '</div>'
+  + '<div class="modal-footer" style="justify-content:space-between">'
+  + '<button class="btn btn-s" onclick="abrirCarpetaLaboral('+idTrab+')">← Volver a la carpeta</button>'
+  + '<div style="display:flex;gap:6px">'
+  + (yaCompletado?'<button class="btn btn-s" onclick="clImprimirDoc('+idTrab+',\''+k+'\')">🖨 Descargar PDF</button>':'')
+  + '<button class="btn btn-p" onclick="clGuardarDoc('+idTrab+',\''+k+'\')">✔ Guardar en la carpeta</button>'
+  + '</div>'
+  + '</div>'
+  + '</div></div>';
+
+  document.getElementById('modal-container').innerHTML = html;
+}
+
+// ── Guardar el documento dentro del trabajador ──────────────────
+function clGuardarDoc(idTrab,k){
+  var t = clBuscaTrab(idTrab); if(!t) return;
+  clEnsure(t);
+  var datos = {};
+  document.querySelectorAll('#cl-form [data-clfield]').forEach(function(el){
+    datos[el.getAttribute('data-clfield')] = el.value;
+  });
+  t.carpeta[k] = { completado:true, datos:datos, actualizado:clHoy() };
+  if(typeof autoGuardar==='function') autoGuardar();
+  if(typeof renderTrabajadores==='function') renderTrabajadores();
+  abrirCarpetaLaboral(idTrab);
+}
+
+// ── Editar datos del empleador (se guardan en params) ───────────
+function clEditarEmpleador(volverId){
+  var emp = clEmpleador();
+  function f(id,label,val,full){
+    return '<div class="field" style="'+(full?'grid-column:1/-1':'')+'"><label>'+label+'</label><input id="'+id+'" value="'+(val||'').replace(/"/g,'&quot;')+'" style="border:1px solid var(--border);border-radius:2px;padding:4px 6px;font-size:11px;font-family:inherit"></div>';
+  }
+  var html =
+  '<div class="modal-overlay" onclick="if(event.target===this)cerrarModal()">'
+  + '<div class="modal" style="max-width:520px;width:96vw">'
+  + '<div class="modal-title">⚙ Datos de la Empresa (Empleador)'
+  + '<button onclick="cerrarModal()" style="background:rgba(255,255,255,.2);border:none;color:#fff;cursor:pointer;font-size:14px;padding:0 4px">✕</button>'
+  + '</div>'
+  + '<div class="modal-body">'
+  + '<div style="font-size:10px;color:var(--text3);margin-bottom:10px">Se completan una sola vez y se prellenan en todos los documentos de todos los trabajadores.</div>'
+  + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+  + f('cl-emp-nombre','Razón social',emp.nombre,true)
+  + f('cl-emp-rut','RUT empresa',emp.rut)
+  + f('cl-emp-giro','Giro',emp.giro)
+  + f('cl-emp-dir','Dirección',emp.direccion,true)
+  + f('cl-emp-comuna','Comuna / Ciudad',emp.comuna)
+  + f('cl-emp-rep','Representante legal',emp.rep)
+  + f('cl-emp-reprut','RUT representante',emp.repRut)
+  + f('cl-emp-repcargo','Cargo del representante',emp.repCargo)
+  + '</div>'
+  + '</div>'
+  + '<div class="modal-footer">'
+  + '<button class="btn btn-s" onclick="abrirCarpetaLaboral('+volverId+')">Cancelar</button>'
+  + '<button class="btn btn-ok" onclick="clGuardarEmpleador('+volverId+')">✔ Guardar datos</button>'
+  + '</div>'
+  + '</div></div>';
+  document.getElementById('modal-container').innerHTML = html;
+}
+
+function clGuardarEmpleador(volverId){
+  if(typeof params!=='object'||!params) return;
+  params.empNombre   = document.getElementById('cl-emp-nombre').value.trim();
+  params.empRut      = document.getElementById('cl-emp-rut').value.trim();
+  params.empGiro     = document.getElementById('cl-emp-giro').value.trim();
+  params.empDir      = document.getElementById('cl-emp-dir').value.trim();
+  params.empComuna   = document.getElementById('cl-emp-comuna').value.trim();
+  params.empRep      = document.getElementById('cl-emp-rep').value.trim();
+  params.empRepRut   = document.getElementById('cl-emp-reprut').value.trim();
+  params.empRepCargo = document.getElementById('cl-emp-repcargo').value.trim();
+  if(typeof autoGuardar==='function') autoGuardar();
+  abrirCarpetaLaboral(volverId);
+}
+
+// ── Generar e imprimir un documento (Guardar como PDF) ──────────
+function clImprimirDoc(idTrab,k){
+  var t = clBuscaTrab(idTrab); if(!t) return;
+  var emp = clEmpleador();
+  var d = (t.carpeta && t.carpeta[k]) ? t.carpeta[k].datos : {};
+  var def = CL_DOCS.find(function(x){return x.k===k;});
+  var cuerpo = clCuerpoDoc(k,t,emp,d||{});
+  abrirVentanaImpresion(clDocHTML(def.label, cuerpo, emp));
+}
+
+// ── Generar la carpeta completa (solo documentos completados) ───
+function clImprimirCarpeta(idTrab){
+  var t = clBuscaTrab(idTrab); if(!t) return;
+  var emp = clEmpleador();
+  var partes = [];
+  CL_DOCS.forEach(function(def){
+    if(t.carpeta && t.carpeta[def.k] && t.carpeta[def.k].completado){
+      var cuerpo = clCuerpoDoc(def.k,t,emp,t.carpeta[def.k].datos||{});
+      partes.push('<div class="doc-page">'+clEncabezado(emp)+'<h2 class="doc-titulo">'+def.label+'</h2>'+cuerpo+'</div>');
+    }
+  });
+  if(!partes.length){ alert('No hay documentos completados todavía en esta carpeta.'); return; }
+  var html = clDocShell('Carpeta Laboral — '+t.nombre, partes.join('<div class="salto"></div>'));
+  abrirVentanaImpresion(html);
+}
+
+// ── Cuerpos de cada documento ───────────────────────────────────
+function clMoney(v){ var n=parseFloat(v)||0; return '$'+Math.round(n).toLocaleString('es-CL'); }
+function clRow(l,v){ return '<tr><td class="lbl">'+l+'</td><td class="val">'+(v||'')+'</td></tr>'; }
+function clP(txt){ return '<p>'+txt+'</p>'; }
+function clFirmas(emp,t){
+  return '<div class="firmas">'
+    +'<div class="fbox">_______________________<br><strong>'+(emp.rep||emp.nombre)+'</strong><br>'+(emp.rep?emp.repCargo:'Empleador')+'<br>'+emp.nombre+' · '+emp.rut+'</div>'
+    +'<div class="fbox">_______________________<br><strong>'+t.nombre+'</strong><br>Trabajador<br>RUT '+t.rut+'</div>'
+    +'</div>';
+}
+
+function clCuerpoDoc(k,t,emp,d){
+  switch(k){
+    case 'contrato':
+      return clP('En '+(d.ciudad||emp.comuna)+', a '+(d.fecha||'')+', entre <strong>'+emp.nombre+'</strong>, RUT '+emp.rut+', giro '+emp.giro+(emp.direccion?', con domicilio en '+emp.direccion:'')+', representada por '+(emp.rep||'su representante legal')+(emp.repRut?', RUT '+emp.repRut:'')+', en adelante "el empleador"; y don(ña) <strong>'+t.nombre+'</strong>, RUT '+t.rut+', en adelante "el trabajador", se ha convenido el siguiente contrato de trabajo:')
+        + clP('<strong>PRIMERO.</strong> El trabajador se obliga a desempeñar el cargo de <strong>'+(d.cargo||t.cargo||'')+'</strong>, cumpliendo las funciones de: '+(d.funciones||'las propias del cargo')+'.')
+        + clP('<strong>SEGUNDO.</strong> Los servicios se prestarán en '+(d.lugar||emp.direccion||'las dependencias del empleador')+'.')
+        + clP('<strong>TERCERO.</strong> La jornada de trabajo será de '+(d.jornada||'')+', en horario de '+(d.horario||'')+'.')
+        + clP('<strong>CUARTO.</strong> El presente contrato es de carácter <strong>'+(d.tipo||'Indefinido')+'</strong>, con fecha de inicio el '+(d.inicio||t.ingreso||'')+(d.termino?' y término el '+d.termino:'')+'.')
+        + clP('<strong>QUINTO.</strong> El empleador pagará una remuneración mensual de <strong>'+clMoney(d.sueldo||t.sueldo)+'</strong>, más gratificación legal ('+(d.gratif||'')+'). Forma de pago: '+(d.pago||'')+'.')
+        + clP('<strong>SEXTO.</strong> Se firman dos ejemplares, quedando uno en poder de cada parte.')
+        + clFirmas(emp,t);
+    case 'anexo':
+      return clP('En '+(d.ciudad||emp.comuna)+', a '+(d.fecha||'')+', las partes individualizadas en el contrato de trabajo de fecha '+(d.fechaContrato||'')+', acuerdan el siguiente anexo:')
+        + clP('Se modifica la cláusula <strong>'+(d.clausula||'')+'</strong> del contrato vigente.')
+        + clP('<strong>Texto anterior:</strong> '+(d.anterior||'—'))
+        + clP('<strong>Texto nuevo:</strong> '+(d.nuevo||'—'))
+        + clP('Esta modificación rige a partir del '+(d.vigencia||'')+'. En lo no modificado, se mantienen vigentes todas las demás cláusulas del contrato original.')
+        + clFirmas(emp,t);
+    case 'pacto_he':
+      return clP('En '+(d.ciudad||emp.comuna)+', a '+(d.fecha||'')+', el empleador y el trabajador don(ña) '+t.nombre+', RUT '+t.rut+', acuerdan el siguiente pacto de horas extraordinarias:')
+        + clP('<strong>PRIMERO.</strong> Se pactan hasta <strong>'+(d.horas||0)+' horas extraordinarias diarias</strong>, distribuidas según: '+(d.distrib||'')+'.')
+        + clP('<strong>SEGUNDO.</strong> El recargo será de '+(d.recargo||'50% sobre el valor de la hora ordinaria')+'.')
+        + clP('<strong>TERCERO.</strong> Este pacto rige desde el '+(d.desde||'')+' hasta el '+(d.hasta||'')+' (vigencia máxima 3 meses, renovable de común acuerdo).')
+        + clP('Las horas extraordinarias solo podrán trabajarse para atender necesidades o situaciones temporales de la empresa.')
+        + clFirmas(emp,t);
+    case 'riesgos':
+      return clP('En cumplimiento de la <strong>obligación de informar los riesgos laborales</strong> (D.S. N°40, "Derecho a Saber"), en '+(d.ciudad||emp.comuna)+' a '+(d.fecha||'')+', se informa al trabajador don(ña) '+t.nombre+', RUT '+t.rut+', sobre los riesgos del puesto de <strong>'+(d.puesto||t.cargo||'')+'</strong>:')
+        + '<table class="tbl">'
+        + clRow('Riesgos del puesto', d.riesgos||'')
+        + clRow('Posibles consecuencias', d.consecuencias||'')
+        + clRow('Medidas preventivas', d.medidas||'')
+        + clRow('Métodos de trabajo correctos', d.metodos||'')
+        + '</table>'
+        + clP('El trabajador declara haber sido informado y comprender los riesgos y medidas señaladas.')
+        + clFirmas(emp,t);
+    case 'epp':
+      var items = (d.elementos||'').split('\n').filter(function(x){return x.trim();}).map(function(x){return '<li>'+x+'</li>';}).join('');
+      return clP('En '+emp.comuna+', a '+(d.fecha||'')+', el empleador hace entrega al trabajador don(ña) '+t.nombre+', RUT '+t.rut+', puesto '+(d.puesto||t.cargo||'')+', de los siguientes Elementos de Protección Personal (EPP):')
+        + '<ul class="lista">'+(items||'<li>—</li>')+'</ul>'
+        + (d.obs?clP('<strong>Observaciones:</strong> '+d.obs):'')
+        + clP('El trabajador declara recibir los elementos en buen estado, comprometiéndose a usarlos, mantenerlos y reponerlos según las instrucciones de seguridad.')
+        + clFirmas(emp,t);
+    case 'riohs':
+      return clP('En '+emp.comuna+', a '+(d.fecha||'')+', el trabajador don(ña) <strong>'+t.nombre+'</strong>, RUT '+t.rut+', declara haber recibido un ejemplar del <strong>Reglamento Interno de Orden, Higiene y Seguridad (RIOHS)</strong> de '+emp.nombre+', versión '+(d.version||'')+', en formato '+(d.medio||'')+'.')
+        + clP('Declara conocer su contenido y obligarse a cumplir las normas allí establecidas.')
+        + clFirmas(emp,t);
+    case 'feriado':
+      return clP('En '+emp.comuna+', a '+(d.fechaSol||'')+', se deja constancia del siguiente '+(d.tipo||'feriado/permiso')+' del trabajador don(ña) '+t.nombre+', RUT '+t.rut+':')
+        + '<table class="tbl">'
+        + clRow('Tipo', d.tipo||'')
+        + clRow('Desde', d.desde||'')
+        + clRow('Hasta', d.hasta||'')
+        + clRow('Días hábiles', d.dias||'0')
+        + clRow('Saldo anterior (días)', d.saldoAnt||'0')
+        + clRow('Saldo posterior (días)', d.saldoPos||'0')
+        + clRow('Motivo / Observación', d.motivo||'')
+        + '</table>'
+        + clP('El trabajador toma conocimiento y firma en señal de conformidad.')
+        + clFirmas(emp,t);
+    case 'carta_despido':
+      return clP('En '+(d.ciudad||emp.comuna)+', a '+(d.fecha||'')+'.')
+        + clP('Señor(a) <strong>'+t.nombre+'</strong>, RUT '+t.rut+'. Presente.')
+        + clP('Por medio de la presente, '+emp.nombre+', RUT '+emp.rut+', comunica a usted el <strong>término de su contrato de trabajo</strong> a contar del '+(d.termino||t.termino||'')+', invocando la siguiente causal legal:')
+        + clP('<strong>'+(d.causal||'')+'</strong>')
+        + clP('Fundamento de hecho: '+(d.hechos||'—'))
+        + clP('Sobre las cotizaciones previsionales: '+(d.cotiz||'')+'.')
+        + clP('Quedará a su disposición el respectivo finiquito conforme a la ley. Saluda atentamente,')
+        + clFirmas(emp,t);
+    case 'finiquito':
+      var total = (parseFloat(d.remPend)||0)+(parseFloat(d.feriadoProp)||0)+(parseFloat(d.indemAviso)||0)+(parseFloat(d.indemAnios)||0)+(parseFloat(d.otros)||0)-(parseFloat(d.descuentos)||0);
+      return clP('En '+(d.ciudad||emp.comuna)+', a '+(d.fecha||'')+', entre '+emp.nombre+', RUT '+emp.rut+', y don(ña) '+t.nombre+', RUT '+t.rut+', se conviene el siguiente finiquito por el contrato vigente entre el '+(d.ingreso||t.ingreso||'')+' y el '+(d.termino||t.termino||'')+', terminado por la causal: '+(d.causal||'')+'.')
+        + '<table class="tbl">'
+        + clRow('Remuneración pendiente', clMoney(d.remPend))
+        + clRow('Feriado proporcional', clMoney(d.feriadoProp))
+        + clRow('Indemnización sustitutiva del aviso previo', clMoney(d.indemAviso))
+        + clRow('Indemnización por años de servicio', clMoney(d.indemAnios))
+        + clRow('Otros haberes', clMoney(d.otros))
+        + clRow('Menos descuentos', '- '+clMoney(d.descuentos))
+        + '<tr class="tot"><td class="lbl">TOTAL A PAGAR</td><td class="val">'+clMoney(total)+'</td></tr>'
+        + '</table>'
+        + clP('El trabajador declara recibir conforme la suma indicada y otorga el más amplio y total finiquito. Se firma ante ministro de fe (notario o Inspección del Trabajo) conforme a la ley.')
+        + clFirmas(emp,t);
+  }
+  return '';
+}
+
+// ── Encabezado y plantillas de impresión ────────────────────────
+function clEncabezado(emp){
+  return '<div class="doc-hdr"><div><div class="emp">'+emp.nombre+'</div><div class="sub">RUT '+emp.rut+(emp.giro?' · '+emp.giro:'')+(emp.direccion?' · '+emp.direccion:'')+'</div></div>'
+    + '<div class="der">Emitido: '+clHoy()+'<br><span style="font-size:8pt;color:#999">Documento didáctico</span></div></div>';
+}
+
+function clDocShell(titulo, contenido){
+  var css = 'body{font-family:Arial,sans-serif;font-size:11pt;color:#000;margin:0;padding:24px;line-height:1.55}'
+    + '.doc-page{max-width:720px;margin:0 auto 18px}'
+    + '.doc-hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:14px}'
+    + '.doc-hdr .emp{font-size:14pt;font-weight:bold}.doc-hdr .sub{font-size:9pt;color:#555;margin-top:2px}.doc-hdr .der{text-align:right;font-size:9pt;color:#555}'
+    + '.doc-titulo{font-size:13pt;text-align:center;margin:6px 0 16px;text-transform:uppercase;letter-spacing:.04em}'
+    + 'p{margin:0 0 10px;text-align:justify}'
+    + '.tbl{width:100%;border-collapse:collapse;margin:8px 0 12px}'
+    + '.tbl td{border:1px solid #CCC;padding:5px 8px;font-size:10pt;vertical-align:top}'
+    + '.tbl td.lbl{background:#F2F2F2;font-weight:bold;width:42%}'
+    + '.tbl tr.tot td{background:#1A1A2E;color:#fff;font-weight:bold}'
+    + '.lista{margin:6px 0 12px 18px}.lista li{margin-bottom:3px}'
+    + '.firmas{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:40px}'
+    + '.fbox{text-align:center;font-size:9pt;color:#333}'
+    + '.salto{page-break-after:always}'
+    + '@media print{body{padding:0}.doc-page{margin:0}@page{size:A4 portrait;margin:1.6cm}}';
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+titulo+'</title><style>'+css+'</style></head><body>'
+    + contenido
+    + '<scr'+'ipt>window.onload=function(){window.print();window.onafterprint=function(){window.close();};}</scr'+'ipt>'
+    + '</body></html>';
+}
+
+function clDocHTML(titulo, cuerpo, emp){
+  return clDocShell(titulo, '<div class="doc-page">'+clEncabezado(emp)+'<h2 class="doc-titulo">'+titulo+'</h2>'+cuerpo+'</div>');
+}
+
+function abrirVentanaImpresion(html){
+  var win = window.open('','_blank','width=820,height=960');
+  if(win){ win.document.write(html); win.document.close(); }
+  else { alert('Permite las ventanas emergentes para descargar/imprimir el documento.'); }
+}
+
+// ── Inyección automática del botón 📁 en la nómina (sin editar renderTrabajadores) ──
+(function(){
+  if(typeof renderTrabajadores!=='function') return;
+  var _origRenderTrab = renderTrabajadores;
+  renderTrabajadores = function(){
+    _origRenderTrab.apply(this, arguments);
+    try{
+      var tb = document.getElementById('trab-tbody');
+      if(!tb) return;
+      var btns = tb.querySelectorAll('button[onclick^="abrirModalTrab("]');
+      btns.forEach(function(b){
+        var m = (b.getAttribute('onclick')||'').match(/abrirModalTrab\((\d+)\)/);
+        if(!m) return;
+        var id = parseInt(m[1]);
+        var td = b.parentNode;
+        if(td.querySelector('.cl-btn')) return;
+        var t = clBuscaTrab(id);
+        var cb = document.createElement('button');
+        cb.className = 'cl-btn';
+        cb.title = 'Carpeta Laboral';
+        cb.style.cssText = 'background:#3060C0;border:1px solid #1040A0;color:#fff;border-radius:2px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:inherit;margin-right:3px';
+        cb.innerHTML = '📁 ' + clCount(t);
+        cb.onclick = function(){ abrirCarpetaLaboral(id); };
+        td.style.whiteSpace = 'nowrap';
+        td.insertBefore(cb, td.firstChild);
+      });
+    }catch(e){}
+  };
+  if(typeof currentView !== 'undefined' && currentView === 'trabajadores') renderTrabajadores();
+})();
+
 </script>
 </body>
 </html>
