@@ -2337,94 +2337,47 @@ function nuevoPeriodo(){
 }
 
 // ═══════════════════════════════════════════════════════
-// INICIO
+// INICIO — versión GitHub
 // ═══════════════════════════════════════════════════════
-// Leer token de la URL y recuperar sesión del servidor
-var SESSION=null;
+// En GitHub NO existe google.script.run ni token temporal.
+// La sesión se inicia desde la ventana RUT + PIN y luego se consulta Apps Script por fetch().
 
-function _cargarConToken(){
-  // Mostrar URL actual para diagnóstico
-  var dbg=document.createElement('div');
-  dbg.id='_dbg';
-  dbg.style.cssText='position:fixed;top:0;left:0;right:0;background:#1A1A2E;color:#fff;padding:6px 10px;font-size:10px;z-index:99999;font-family:monospace';
-  dbg.textContent='URL: '+window.location.href.substring(0,120);
-  document.body&&document.body.appendChild(dbg);
+function iniciarAppGitHub(){
+  actualizarReloj();
 
-  // En Apps Script, el token puede venir en location.search O en location.hash
-  var search=window.location.search+window.location.hash;
-  var token='';
-  var m=search.match(/[?&#]token=([^&#+]+)/);
-  if(m)token=decodeURIComponent(m[1]);
+  // Intentar recuperar sesión guardada en el navegador
+  try{
+    var raw=sessionStorage.getItem('erp_session') || localStorage.getItem('erp_session');
+    if(raw) SESSION=JSON.parse(raw);
+  }catch(e){ SESSION=null; }
 
-  dbg.textContent+=' | TOKEN: '+(token||'NO ENCONTRADO');
-
-  if(!token){
-    // Sin token — intentar cargar sin sesión (modo demostración)
+  if(SESSION && SESSION.rut){
+    updNom();
+    cargarDesdeServidor();
+    mostrarLogin(false);
+  }else{
     resetearDatos();
-    var el=document.getElementById('usr-nom');
-    if(el)el.textContent='Sin sesion';
-    marcarGuardado('Sin sesion — modo demo');
-    renderPlan();renderBalance();actualizarStatus();
-    return;
+    renderPlan();
+    renderBalance();
+    actualizarStatus();
+    marcarGuardado('Ingrese con RUT y PIN');
+    mostrarLogin(true);
   }
-
-  // Recuperar sesión desde el servidor
-  google.script.run
-    .withSuccessHandler(function(r){
-      if(!r||!r.ok){
-        google.script.run
-          .withSuccessHandler(function(url){window.location.href=url;})
-          .getScriptUrl();
-        return;
-      }
-      SESSION=r.alumno;
-      // Cargar datos
-      if(r.datos){
-        try{
-          params=r.datos.params||params;
-          cuentas=r.datos.cuentas||[];
-          movimientos=r.datos.movimientos||[];
-          asientos=r.datos.asientos||[];
-          nextId=r.datos.nextId||1;
-          trabajadores=r.datos.trabajadores||[];
-          liquidaciones=r.datos.liquidaciones||{};
-          migrarGrupIds();
-        }catch(e){}
-      } else {
-        resetearDatos();
-      }
-      // Actualizar UI
-      var el=document.getElementById('usr-nom');
-      if(el)el.textContent=SESSION.nombre+' ('+SESSION.rut+')';
-      marcarGuardado('Datos de '+SESSION.nombre+' cargados');
-      renderPlan();renderBalance();actualizarStatus();
-    })
-    .withFailureHandler(function(){
-      google.script.run
-        .withSuccessHandler(function(url){window.location.href=url;})
-        .getScriptUrl();
-    })
-    .recuperarSesionTemporal(token);
 }
 
-// Cargar cuando el DOM esté listo
 window.onerror=function(msg,src,line,col,err){
   var d=document.createElement('div');
-  d.style.cssText='position:fixed;top:0;left:0;right:0;background:#c00;color:#fff;padding:10px;font-size:12px;z-index:99999;font-family:monospace;word-break:break-all';
+  d.style.cssText='position:fixed;top:0;left:0;right:0;background:#c00;color:#fff;padding:10px;font-size:12px;z-index:999999;font-family:monospace;word-break:break-all';
   d.textContent='JS ERROR L'+line+': '+msg;
   document.body&&document.body.appendChild(d);
   return true;
 };
-// Llamar directamente — DOMContentLoaded puede ya haber ocurrido
+
 if(document.readyState==='loading'){
-  document.addEventListener('DOMContentLoaded',function(){_cargarConToken();});
-} else {
-  _cargarConToken();
+  document.addEventListener('DOMContentLoaded',iniciarAppGitHub);
+}else{
+  iniciarAppGitHub();
 }
-actualizarReloj();
-renderPlan();
-renderBalance();
-actualizarStatus();
 
 // ═══════════════════════════════════════════════════════
 // CATÁLOGO COMPLETO DE CUENTAS CONTABLES CHILE
@@ -3328,15 +3281,14 @@ function imprimirLiquidacion(id){
   }
 }
 
-function mostrarLogin(v){}
+function mostrarLogin(v){var ov=document.getElementById('login-ov');if(ov)ov.style.display=v?'flex':'none';}
 function fmtRut(inp){var v=inp.value.replace(/[^0-9kK]/g,'');if(v.length>1){var c=v.slice(0,-1).replace(/\B(?=(\d{3})+(?!\d))/g,'.');inp.value=c+'-'+v.slice(-1);}}
 function doLogin(){
   var rut=document.getElementById('l-rut').value.trim();
   var pin=document.getElementById('l-pin').value.trim();
   var err=document.getElementById('login-err');err.style.display='none';
   if(!rut){err.textContent='Ingresa tu RUT';err.style.display='block';return;}
-  if(!WEB_APP_URL){SESSION={rut:rut,nombre:rut,curso:''};try{localStorage.setItem('erp_session',JSON.stringify(SESSION));}catch(e){}
-    try{sessionStorage.setItem('erp_session',JSON.stringify(SESSION));}catch(e){}mostrarLogin(false);cargarDatos();migrarGrupIds();renderCurrentView();renderPlan();actualizarStatus();updNom();return;}
+  if(!WEB_APP_URL||WEB_APP_URL.indexOf('PEGA_AQUI')>=0){err.textContent='Falta pegar la URL /exec de Apps Script en WEB_APP_URL';err.style.display='block';return;}
   if(!pin){err.textContent='Ingresa tu PIN';err.style.display='block';return;}
   var btn=document.getElementById('l-btn');btn.textContent='Verificando...';btn.disabled=true;
   fetch(WEB_APP_URL,{method:'POST',body:JSON.stringify({accion:'login',rut:rut,pin:pin})})
@@ -3350,12 +3302,12 @@ function doLogin(){
 }
 function updNom(){var e=document.getElementById('usr-nom');if(e&&SESSION)e.textContent=SESSION.nombre+' ('+SESSION.rut+')';}
 function cerrarSesion(){
-  if(!confirm('Cerrar sesion?'))return;
+  if(!confirm('Cerrar sesión?'))return;
   SESSION=null;
   try{localStorage.removeItem('erp_session');}catch(e){}
   try{sessionStorage.removeItem('erp_session');}catch(e){}
-  var base=(window.location.href||'').split('?')[0];
-  window.location.href=base;
+  resetearDatos();renderPlan();renderBalance();actualizarStatus();updNom();
+  mostrarLogin(true);
 }
 function cargarDesdeServidor(){
   if(!WEB_APP_URL||!SESSION){cargarDatos();migrarGrupIds();renderCurrentView();renderPlan();actualizarStatus();return;}
