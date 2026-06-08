@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- VERSION: ERP GitHub + Plantillas Laborales Docente -->
 <html lang="es">
 <head>
 <meta charset="UTF-8">
@@ -2178,6 +2179,7 @@ function abrirCarpetaLaboral(id){
     </div>
     <div class="modal-body">
       <div style="font-size:11px;color:#555;margin-bottom:8px"><strong>Trabajador:</strong> ${t.nombre} — ${t.rut} — ${t.cargo||''}</div>
+      <div style="font-size:11px;background:#E8F0FF;border:1px solid #7799CC;color:#003399;border-radius:3px;padding:6px 8px;margin-bottom:8px">📄 Los documentos se crean desde las plantillas oficiales del profesor registradas en Drive. Si una plantilla no está configurada, el sistema usará el formato base del ERP.</div>
       <div id="carpeta-laboral-msg" class="alert" style="display:none"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn btn-s" onclick="refrescarCarpetaLaboral(${id})">🔄 Actualizar estados</button>
@@ -2245,7 +2247,8 @@ function abrirDocumentoLaboral(id,tipo){
   apiERP({accion:'abrir_documento_laboral',tipo_documento:tipo,trabajador:t,empresa:empresaLaboralActual()})
     .then(resp=>{
       if(!resp.ok)throw new Error(resp.error||'No se pudo abrir');
-      setMsgCarpeta(resp.creado?'Documento creado correctamente.':'Documento abierto.', 'ok');
+      const origen=resp.desde_plantilla?' usando plantilla oficial del profesor':'';
+      setMsgCarpeta(resp.creado?('Documento creado correctamente'+origen+'.'):'Documento abierto.', 'ok');
       if(resp.edit_url)window.open(resp.edit_url,'_blank');
       refrescarCarpetaLaboral(id);
     })
