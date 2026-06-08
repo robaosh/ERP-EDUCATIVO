@@ -148,6 +148,7 @@ body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:12px;color:var(--t
 .doc-status{font-weight:bold;border-radius:12px;padding:2px 8px;font-size:10px;white-space:nowrap}
 .doc-status.rojo{background:#FFCCCC;color:#880000;border:1px solid #CC4444}
 .doc-status.azul{background:#DDEEFF;color:#003399;border:1px solid #7799CC}
+.doc-status.amarillo{background:#FFF0CC;color:#664400;border:1px solid #CCAA44}
 .doc-btn{cursor:pointer;border:1px solid var(--border);border-radius:3px;background:var(--surface);font-size:10px;padding:3px 7px;font-family:inherit}
 .doc-btn:hover{background:var(--blue-bg)}
 .carpeta-btn{background:#E8F0FF;border:1px solid #7799CC;color:#003399;border-radius:3px;padding:2px 7px;cursor:pointer;font-size:10px;font-weight:bold;font-family:inherit}
@@ -2118,14 +2119,14 @@ function eliminarTrab(id){
 // CARPETA LABORAL DEL TRABAJADOR
 // ═══════════════════════════════════════════════════════
 const DOCS_LABORALES=[
-  {id:'contrato_trabajo',nombre:'Contrato de Trabajo',grupo:'carpeta'},
-  {id:'anexo_contrato',nombre:'Anexo de Contrato',grupo:'carpeta'},
-  {id:'pacto_horas_extra',nombre:'Pacto de Horas Extraordinarias',grupo:'carpeta'},
-  {id:'registro_riesgos',nombre:'Registro de riesgos laborales',grupo:'carpeta'},
+  {id:'contrato_trabajo',nombre:'Contrato de Trabajo Individual',grupo:'carpeta'},
+  {id:'anexo_contrato',nombre:'Anexo de Contrato de Trabajo',grupo:'carpeta'},
+  {id:'pacto_horas',nombre:'Pacto de horas extras',grupo:'carpeta'},
+  {id:'registro_riesgos',nombre:'Registro riesgos laborales',grupo:'carpeta'},
   {id:'entrega_epp',nombre:'Entrega equipos EPP',grupo:'carpeta'},
   {id:'registro_riohs',nombre:'Registro Entrega RIOHS',grupo:'carpeta'},
-  {id:'feriado_permisos',nombre:'Comprobante de Feriado y Permisos',grupo:'carpeta'},
-  {id:'carta_despido',nombre:'Carta de despido',grupo:'termino'},
+  {id:'feriado_legal',nombre:'Comprobante Feriado Legal',grupo:'carpeta'},
+  {id:'carta_termino',nombre:'Carta aviso término',grupo:'termino'},
   {id:'finiquito',nombre:'Finiquito',grupo:'termino'}
 ];
 let estadosLaborales={};
@@ -2179,7 +2180,7 @@ function abrirCarpetaLaboral(id){
     </div>
     <div class="modal-body">
       <div style="font-size:11px;color:#555;margin-bottom:8px"><strong>Trabajador:</strong> ${t.nombre} — ${t.rut} — ${t.cargo||''}</div>
-      <div style="font-size:11px;background:#E8F0FF;border:1px solid #7799CC;color:#003399;border-radius:3px;padding:6px 8px;margin-bottom:8px">📄 Los documentos se crean desde las plantillas oficiales del profesor registradas en Drive. Si una plantilla no está configurada, el sistema usará el formato base del ERP.</div>
+      <div style="font-size:11px;background:#E8F0FF;border:1px solid #7799CC;color:#003399;border-radius:3px;padding:6px 8px;margin-bottom:8px">📄 Flujo seguro: el alumno <strong>ve o descarga el modelo oficial</strong>, lo completa en su computador y luego usa <strong>Subir completado</strong>. La plantilla original del profesor no se modifica.</div>
       <div id="carpeta-laboral-msg" class="alert" style="display:none"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn btn-s" onclick="refrescarCarpetaLaboral(${id})">🔄 Actualizar estados</button>
@@ -2227,12 +2228,23 @@ function renderDocumentosLaborales(id){
   const build=(grupo)=>DOCS_LABORALES.filter(d=>d.grupo===grupo).map(d=>{
     const st=docs[d.id]||{color:'rojo',estado:'faltante'};
     const color=st.color==='azul'?'azul':'rojo';
-    const label=color==='azul'?'OK':'Falta';
+    const label=color==='azul'?'Entregado':'Falta';
+    const inputId=`upload-${id}-${d.id}`;
+    const entregaBtn=color==='azul'
+      ? `<button class="doc-btn" onclick="abrirEntregaLaboral(${id},'${d.id}')">Ver entrega</button>`
+      : '';
     return `<div class="doc-pill">
-      <div><span class="doc-status ${color}">${label}</span> <strong>${d.nombre}</strong></div>
+      <div>
+        <span class="doc-status ${color}">${label}</span> <strong>${d.nombre}</strong>
+        <div class="carpeta-mini">${color==='azul'?'Archivo completado subido por el alumno.':'Descarga el modelo, complétalo y súbelo.'}</div>
+      </div>
       <div class="doc-actions">
-        <button class="doc-btn" onclick="abrirDocumentoLaboral(${id},'${d.id}')">${color==='azul'?'Abrir':'Crear'}</button>
-        <button class="doc-btn" onclick="descargarDocumentoLaboral(${id},'${d.id}')">PDF</button>
+        <button class="doc-btn" onclick="verModeloLaboral(${id},'${d.id}')">Ver modelo</button>
+        <button class="doc-btn" onclick="descargarModeloLaboral(${id},'${d.id}','docx')">Descargar DOCX</button>
+        <button class="doc-btn" onclick="descargarModeloLaboral(${id},'${d.id}','pdf')">PDF modelo</button>
+        <button class="doc-btn" onclick="document.getElementById('${inputId}').click()">Subir completado</button>
+        ${entregaBtn}
+        <input id="${inputId}" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none" onchange="subirDocumentoLaboral(event,${id},'${d.id}')">
       </div>
     </div>`;
   }).join('');
@@ -2240,32 +2252,79 @@ function renderDocumentosLaborales(id){
   if(contTer)contTer.innerHTML=build('termino');
 }
 
-function abrirDocumentoLaboral(id,tipo){
-  const t=trabajadores.find(x=>x.id===id);
-  if(!t)return;
-  setMsgCarpeta('Creando/abriendo documento...', 'ok');
-  apiERP({accion:'abrir_documento_laboral',tipo_documento:tipo,trabajador:t,empresa:empresaLaboralActual()})
+function obtenerModeloLaboral(tipo){
+  return apiERP({accion:'obtener_modelo_laboral',tipo_documento:tipo});
+}
+
+function verModeloLaboral(id,tipo){
+  setMsgCarpeta('Abriendo modelo oficial del profesor...', 'ok');
+  obtenerModeloLaboral(tipo)
     .then(resp=>{
-      if(!resp.ok)throw new Error(resp.error||'No se pudo abrir');
-      const origen=resp.desde_plantilla?' usando plantilla oficial del profesor':'';
-      setMsgCarpeta(resp.creado?('Documento creado correctamente'+origen+'.'):'Documento abierto.', 'ok');
-      if(resp.edit_url)window.open(resp.edit_url,'_blank');
-      refrescarCarpetaLaboral(id);
+      if(!resp.ok)throw new Error(resp.error||'No se pudo abrir el modelo');
+      setMsgCarpeta('Modelo abierto. La plantilla original queda solo para ver/descargar.', 'ok');
+      window.open(resp.view_url||resp.edit_url,'_blank');
     })
     .catch(err=>setMsgCarpeta(err.message,'err'));
 }
 
-function descargarDocumentoLaboral(id,tipo){
-  const t=trabajadores.find(x=>x.id===id);
-  if(!t)return;
-  setMsgCarpeta('Preparando PDF...', 'ok');
-  apiERP({accion:'descargar_documento_laboral',tipo_documento:tipo,trabajador:t,empresa:empresaLaboralActual()})
+function descargarModeloLaboral(id,tipo,formato){
+  setMsgCarpeta('Preparando descarga del modelo...', 'ok');
+  obtenerModeloLaboral(tipo)
     .then(resp=>{
-      if(!resp.ok)throw new Error(resp.error||'No se pudo descargar');
-      setMsgCarpeta('PDF generado.', 'ok');
-      if(resp.pdf_url)window.open(resp.pdf_url,'_blank');
+      if(!resp.ok)throw new Error(resp.error||'No se pudo descargar el modelo');
+      const url=formato==='pdf'?resp.pdf_url:resp.docx_url;
+      setMsgCarpeta('Modelo listo para descargar.', 'ok');
+      if(url)window.open(url,'_blank');
     })
     .catch(err=>setMsgCarpeta(err.message,'err'));
+}
+
+function subirDocumentoLaboral(ev,id,tipo){
+  const input=ev.target;
+  const file=input.files&&input.files[0];
+  input.value='';
+  if(!file)return;
+  const t=trabajadores.find(x=>x.id===id);
+  if(!t)return;
+  const maxMB=12;
+  if(file.size>maxMB*1024*1024){
+    alert('El archivo pesa más de '+maxMB+' MB. Reduce el tamaño o súbelo en PDF más liviano.');
+    return;
+  }
+  setMsgCarpeta('Subiendo documento completado...', 'ok');
+  const reader=new FileReader();
+  reader.onload=function(){
+    const dataUrl=reader.result||'';
+    const base64=String(dataUrl).split(',')[1]||'';
+    apiERP({
+      accion:'subir_documento_laboral',
+      tipo_documento:tipo,
+      trabajador:t,
+      empresa:empresaLaboralActual(),
+      archivo:{nombre:file.name,mimeType:file.type||'application/octet-stream',base64:base64}
+    })
+    .then(resp=>{
+      if(!resp.ok)throw new Error(resp.error||'No se pudo subir');
+      setMsgCarpeta('Documento completado subido correctamente. Estado marcado como Entregado.', 'ok');
+      refrescarCarpetaLaboral(id);
+      if(resp.file_url)window.open(resp.file_url,'_blank');
+    })
+    .catch(err=>setMsgCarpeta(err.message,'err'));
+  };
+  reader.onerror=function(){setMsgCarpeta('No se pudo leer el archivo seleccionado.','err');};
+  reader.readAsDataURL(file);
+}
+
+function abrirEntregaLaboral(id,tipo){
+  const docs=estadosLaborales[id]||{};
+  const st=docs[tipo]||{};
+  const url=st.edit_url||st.pdf_url||st.file_url;
+  if(url)window.open(url,'_blank');
+  else setMsgCarpeta('No hay archivo entregado para abrir.','err');
+}
+
+function descargarDocumentoLaboral(id,tipo){
+  abrirEntregaLaboral(id,tipo);
 }
 
 function descargarCarpetaLaboral(id){
