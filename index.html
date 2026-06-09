@@ -296,6 +296,7 @@ body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:12px;color:var(--t
     <div class="view-tab" id="tab-liquidaciones" onclick="navView('liquidaciones')">💰 Remuneraciones</div>
     <div class="view-tab" id="tab-trabajadores" onclick="navView('trabajadores')">👥 RR.HH.</div>
     <div class="view-tab" id="tab-catalogo" onclick="navView('catalogo')">📚 Catálogo Cuentas</div>
+<div class="view-tab" id="tab-profesor" onclick="navView('profesor')">👨‍🏫 Panel Profesor</div>
 <div class="view-tab" id="tab-mayor" onclick="navView('mayor')">📖 Libro Mayor</div>
     <div class="view-tab" id="tab-params" onclick="navView('params')">⚙ Parámetros</div>
   </div>
@@ -408,6 +409,41 @@ body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:12px;color:var(--t
       </tr></thead>
       <tbody id="trab-tbody"></tbody>
     </table></div>
+  </div>
+
+
+
+  <!-- PANEL PROFESOR -->
+  <div id="view-profesor" style="display:none;flex:1;overflow:auto;padding:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap">
+      <div>
+        <strong style="font-size:13px">👨‍🏫 Panel Profesor — Entregas Laborales</strong>
+        <div style="font-size:11px;color:#666;margin-top:3px">Revisión por curso, alumno, trabajador y documento entregado.</div>
+      </div>
+      <button class="btn btn-p" onclick="cargarPanelProfesor()">🔄 Actualizar panel</button>
+    </div>
+    <div id="prof-alert" class="alert"></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--border);padding:8px;margin-bottom:8px;border-radius:3px">
+      <label class="filtro-label">Curso:</label>
+      <select id="prof-curso" class="filtro-select" onchange="renderProfesor()"><option value="">Todos</option></select>
+      <label class="filtro-label">Estado:</label>
+      <select id="prof-estado" class="filtro-select" onchange="renderProfesor()"><option value="">Todos</option><option value="pendientes">Con pendientes</option><option value="completos">Completos</option></select>
+      <input id="prof-buscar" class="filtro-input" style="width:230px" placeholder="Buscar alumno o trabajador..." oninput="renderProfesor()">
+      <span id="prof-resumen" style="font-size:11px;font-weight:bold;color:#003399;margin-left:auto"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:980px">
+        <thead><tr style="background:linear-gradient(to bottom,#5080D0,#3060C0);color:#fff">
+          <th style="padding:5px;border:1px solid #3060C0">Curso</th>
+          <th style="padding:5px;border:1px solid #3060C0">Alumno</th>
+          <th style="padding:5px;border:1px solid #3060C0">Trabajador</th>
+          <th style="padding:5px;border:1px solid #3060C0">Progreso</th>
+          <th style="padding:5px;border:1px solid #3060C0">Documentos</th>
+          <th style="padding:5px;border:1px solid #3060C0;width:150px">Acciones</th>
+        </tr></thead>
+        <tbody id="prof-tbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- LIBRO MAYOR -->
@@ -822,7 +858,7 @@ setInterval(actualizarReloj,1000);
 // ═══════════════════════════════════════════════════════
 // NAVEGACIÓN
 // ═══════════════════════════════════════════════════════
-const VIEWS=['balance','diario','liquidaciones','trabajadores','catalogo','mayor','params'];
+const VIEWS=['balance','diario','liquidaciones','trabajadores','catalogo','profesor','mayor','params'];
 function navView(id){
   currentView=id;
   VIEWS.forEach(v=>{
@@ -840,6 +876,7 @@ function renderCurrentView(){
   else if(currentView==='trabajadores')renderTrabajadores();
   else if(currentView==='params')syncParamsUI();
   else if(currentView==='mayor')renderMayor();
+  else if(currentView==='profesor')renderProfesor();
   else if(currentView==='catalogo')renderCatalogo();
 }
 function cerrar(){if(confirm('¿Cerrar el sistema?'))window.close();}
@@ -2302,6 +2339,7 @@ function subirDocumentoLaboral(ev,id,tipo){
       tipo_documento:tipo,
       trabajador:t,
       empresa:empresaLaboralActual(),
+      alumno:SESSION,
       archivo:{nombre:file.name,mimeType:file.type||'application/octet-stream',base64:base64}
     })
     .then(resp=>{
@@ -2332,7 +2370,7 @@ function descargarCarpetaLaboral(id){
   const t=trabajadores.find(x=>x.id===id);
   if(!t)return;
   setMsgCarpeta('Preparando ZIP de la carpeta laboral...', 'ok');
-  apiERP({accion:'descargar_carpeta_laboral',trabajador:t,empresa:empresaLaboralActual()})
+  apiERP({accion:'descargar_carpeta_laboral',trabajador:t,empresa:empresaLaboralActual(),alumno:SESSION})
     .then(resp=>{
       if(!resp.ok)throw new Error(resp.error||'No se pudo descargar carpeta');
       setMsgCarpeta('ZIP generado con '+resp.total+' documentos.', 'ok');
@@ -2399,6 +2437,115 @@ function nuevoPeriodo(){
   alert('Período limpiado. Actualiza el Mes en Parámetros.');
 }
 
+
+
+// ═══════════════════════════════════════════════════════
+// PANEL PROFESOR
+// ═══════════════════════════════════════════════════════
+var LOGIN_MODO='alumno';
+var PROF_DATA={cursos:[],alumnos:[],documentos:[],tipos:[]};
+
+function setLoginModo(modo){
+  LOGIN_MODO=modo||'alumno';
+  var isProf=LOGIN_MODO==='profesor';
+  var title=document.getElementById('login-title');
+  var sub=document.getElementById('login-sub');
+  var lr=document.getElementById('l-label-rut');
+  var lp=document.getElementById('l-label-pin');
+  var help=document.getElementById('l-help-pin');
+  var rut=document.getElementById('l-rut');
+  var pin=document.getElementById('l-pin');
+  var btn=document.getElementById('l-btn');
+  var ba=document.getElementById('btn-login-alumno');
+  var bp=document.getElementById('btn-login-profesor');
+  if(title)title.textContent=isProf?'Ingreso Profesor':'ERP Empresarial';
+  if(sub)sub.textContent=isProf?'Panel de revisión de entregas laborales':'Sistema Integrado de Gestion Educativo';
+  if(lr)lr.textContent=isProf?'Usuario o correo del profesor':'RUT del alumno';
+  if(lp)lp.textContent=isProf?'Clave del profesor':'PIN (4 digitos antes del verificador)';
+  if(help)help.textContent=isProf?'Clave inicial sugerida: PROFESOR2025. Luego puede cambiarse en la hoja Profesores.':'Ej: RUT 12.345.6789-0 tiene PIN: 6789';
+  if(rut){rut.value='';rut.placeholder=isProf?'profesor':'Ej: 12.345.678-9';rut.maxLength=isProf?60:12;}
+  if(pin){pin.value='';pin.placeholder=isProf?'Clave':'****';pin.style.letterSpacing=isProf?'0':'10px';}
+  if(btn)btn.textContent=isProf?'Ingresar como Profesor':'Ingresar al Sistema';
+  if(ba)ba.style.background=isProf?'#f5f5f5':'#3060C0';
+  if(ba)ba.style.color=isProf?'#333':'#fff';
+  if(bp)bp.style.background=isProf?'#3060C0':'#f5f5f5';
+  if(bp)bp.style.color=isProf?'#fff':'#333';
+  var err=document.getElementById('login-err');if(err)err.style.display='none';
+}
+
+function cargarPanelProfesor(){
+  if(!SESSION||SESSION.rol!=='profesor')return;
+  var alert=document.getElementById('prof-alert');
+  if(alert){alert.className='alert alert-ok show';alert.textContent='Cargando panel profesor...';}
+  fetch(WEB_APP_URL,{method:'POST',body:JSON.stringify({accion:'panel_profesor_laboral',usuario:SESSION.usuario,clave:SESSION.clave})})
+  .then(r=>r.json())
+  .then(resp=>{
+    if(!resp.ok)throw new Error(resp.error||'No se pudo cargar panel');
+    PROF_DATA=resp;
+    poblarCursosProfesor();
+    renderProfesor();
+    if(alert)alert.className='alert';
+  })
+  .catch(err=>{if(alert){alert.className='alert alert-err show';alert.textContent=err.message;}});
+}
+
+function poblarCursosProfesor(){
+  var sel=document.getElementById('prof-curso');
+  if(!sel)return;
+  var actual=sel.value;
+  sel.innerHTML='<option value="">Todos</option>'+(PROF_DATA.cursos||[]).map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('');
+  sel.value=actual;
+}
+
+function renderProfesor(){
+  var tb=document.getElementById('prof-tbody');
+  if(!tb)return;
+  var cursoFiltro=(document.getElementById('prof-curso')||{}).value||'';
+  var estadoFiltro=(document.getElementById('prof-estado')||{}).value||'';
+  var q=((document.getElementById('prof-buscar')||{}).value||'').toLowerCase().trim();
+  var tipos=PROF_DATA.tipos||TIPOS_DOCS_LABORALES||[];
+  var docs=PROF_DATA.documentos||[];
+  var grupos={};
+  docs.forEach(d=>{
+    var key=[d.curso_alumno||'Sin curso',d.rut_alumno||'',d.rut_trabajador||'',d.nombre_trabajador||''].join('|');
+    if(!grupos[key])grupos[key]={curso:d.curso_alumno||'Sin curso',rut_alumno:d.rut_alumno||'',alumno:d.nombre_alumno||'',rut_trabajador:d.rut_trabajador||'',trabajador:d.nombre_trabajador||'',docs:{},carpeta:d.carpeta_trabajador_url||d.carpeta_alumno_url||''};
+    grupos[key].docs[d.tipo]=d;
+    if(d.carpeta_trabajador_url)grupos[key].carpeta=d.carpeta_trabajador_url;
+  });
+  var rows=Object.values(grupos);
+  rows=rows.filter(g=>{
+    var total=tipos.length||9;
+    var ok=Object.keys(g.docs).length;
+    var completo=ok>=total;
+    if(cursoFiltro&&g.curso!==cursoFiltro)return false;
+    if(estadoFiltro==='pendientes'&&completo)return false;
+    if(estadoFiltro==='completos'&&!completo)return false;
+    if(q&&!(String(g.alumno+' '+g.rut_alumno+' '+g.trabajador+' '+g.rut_trabajador).toLowerCase().includes(q)))return false;
+    return true;
+  });
+  rows.sort((a,b)=>(a.curso+a.alumno+a.trabajador).localeCompare(b.curso+b.alumno+b.trabajador));
+  var totalDocs=tipos.length||9;
+  tb.innerHTML=rows.map(g=>{
+    var entregados=Object.keys(g.docs).length;
+    var chips=tipos.map(t=>{
+      var d=g.docs[t.id];
+      if(d){return '<button class="doc-btn" style="background:#DDEEFF;color:#003399;border-color:#7799CC;margin:1px" onclick="window.open(\''+escAttr(d.ver_url||d.descarga_url||'')+'\',\'_blank\')">🔵 '+esc(t.nombre)+'</button>';}
+      return '<span class="doc-status rojo" style="display:inline-block;margin:1px">🔴 '+esc(t.nombre)+'</span>';
+    }).join(' ');
+    var carpeta=g.carpeta?'<button class="doc-btn" onclick="window.open(\''+escAttr(g.carpeta)+'\',\'_blank\')">📁 Carpeta</button>':'';
+    return '<tr>'+
+      '<td style="padding:5px;border:1px solid #ddd">'+esc(g.curso)+'</td>'+
+      '<td style="padding:5px;border:1px solid #ddd"><b>'+esc(g.alumno||'Alumno')+'</b><br><span style="color:#666">'+esc(g.rut_alumno)+'</span></td>'+
+      '<td style="padding:5px;border:1px solid #ddd"><b>'+esc(g.trabajador||'Trabajador')+'</b><br><span style="color:#666">'+esc(g.rut_trabajador)+'</span></td>'+
+      '<td style="padding:5px;border:1px solid #ddd;text-align:center;font-weight:bold">'+entregados+'/'+totalDocs+'</td>'+
+      '<td style="padding:5px;border:1px solid #ddd">'+chips+'</td>'+
+      '<td style="padding:5px;border:1px solid #ddd">'+carpeta+'</td>'+
+      '</tr>';
+  }).join('') || '<tr><td colspan="6" style="padding:12px;text-align:center;color:#666">Todavía no hay documentos subidos para mostrar.</td></tr>';
+  var res=document.getElementById('prof-resumen');
+  if(res)res.textContent=rows.length+' carpeta(s) laboral(es)';
+}
+
 // ═══════════════════════════════════════════════════════
 // INICIO — versión GitHub
 // ═══════════════════════════════════════════════════════
@@ -2415,7 +2562,12 @@ function iniciarAppGitHub(){
     if(raw) SESSION=JSON.parse(raw);
   }catch(e){ SESSION=null; }
 
-  if(SESSION && SESSION.rut){
+  if(SESSION && SESSION.rol==='profesor'){
+    updNom();
+    mostrarLogin(false);
+    navView('profesor');
+    cargarPanelProfesor();
+  }else if(SESSION && SESSION.rut){
     updNom();
     cargarDesdeServidor();
     mostrarLogin(false);
@@ -3348,6 +3500,10 @@ function imprimirLiquidacion(id){
 function mostrarLogin(v){var ov=document.getElementById('login-ov');if(ov)ov.style.display=v?'flex':'none';}
 function fmtRut(inp){var v=inp.value.replace(/[^0-9kK]/g,'');if(v.length>1){var c=v.slice(0,-1).replace(/\B(?=(\d{3})+(?!\d))/g,'.');inp.value=c+'-'+v.slice(-1);}}
 function doLogin(){
+  if(LOGIN_MODO==='profesor')return doLoginProfesor();
+  return doLoginAlumno();
+}
+function doLoginAlumno(){
   var rut=document.getElementById('l-rut').value.trim();
   var pin=document.getElementById('l-pin').value.trim();
   var err=document.getElementById('login-err');err.style.display='none';
@@ -3359,12 +3515,29 @@ function doLogin(){
   .then(function(r){return r.json();})
   .then(function(resp){
     btn.textContent='Ingresar al Sistema';btn.disabled=false;
-    if(resp.ok){SESSION=resp.alumno;
+    if(resp.ok){SESSION=resp.alumno;SESSION.rol='alumno';
     try{sessionStorage.setItem('erp_session',JSON.stringify(SESSION));}catch(e){}mostrarLogin(false);updNom();cargarDesdeServidor();}
     else{err.textContent=resp.error||'Error';err.style.display='block';}
   }).catch(function(){btn.textContent='Ingresar al Sistema';btn.disabled=false;err.textContent='Error de conexion.';err.style.display='block';});
 }
-function updNom(){var e=document.getElementById('usr-nom');if(e&&SESSION)e.textContent=SESSION.nombre+' ('+SESSION.rut+')';}
+function doLoginProfesor(){
+  var usuario=document.getElementById('l-rut').value.trim();
+  var clave=document.getElementById('l-pin').value.trim();
+  var err=document.getElementById('login-err');err.style.display='none';
+  if(!usuario){err.textContent='Ingresa usuario o correo del profesor';err.style.display='block';return;}
+  if(!clave){err.textContent='Ingresa la clave del profesor';err.style.display='block';return;}
+  var btn=document.getElementById('l-btn');btn.textContent='Verificando profesor...';btn.disabled=true;
+  fetch(WEB_APP_URL,{method:'POST',body:JSON.stringify({accion:'login_profesor',usuario:usuario,clave:clave})})
+  .then(function(r){return r.json();})
+  .then(function(resp){
+    btn.textContent='Ingresar como Profesor';btn.disabled=false;
+    if(resp.ok){SESSION=resp.profesor;SESSION.rol='profesor';SESSION.clave=clave;
+      try{sessionStorage.setItem('erp_session',JSON.stringify(SESSION));}catch(e){}
+      mostrarLogin(false);updNom();navView('profesor');cargarPanelProfesor();
+    }else{err.textContent=resp.error||'Error';err.style.display='block';}
+  }).catch(function(){btn.textContent='Ingresar como Profesor';btn.disabled=false;err.textContent='Error de conexion.';err.style.display='block';});
+}
+function updNom(){var e=document.getElementById('usr-nom');if(e&&SESSION){if(SESSION.rol==='profesor')e.textContent=(SESSION.nombre||SESSION.usuario)+' (Profesor)';else e.textContent=SESSION.nombre+' ('+SESSION.rut+')';}}
 function cerrarSesion(){
   if(!confirm('¿Cerrar sesión?'))return;
   SESSION=null;
@@ -3376,6 +3549,7 @@ function cerrarSesion(){
   mostrarLogin(true);
 }
 function cargarDesdeServidor(){
+  if(SESSION&&SESSION.rol==='profesor'){navView('profesor');cargarPanelProfesor();return;}
   if(!WEB_APP_URL||!SESSION){cargarDatos();migrarGrupIds();renderCurrentView();renderPlan();actualizarStatus();return;}
   marcarGuardado('Cargando...');
   fetch(WEB_APP_URL,{method:'POST',body:JSON.stringify({accion:'cargar',rut:SESSION.rut})})
@@ -3387,6 +3561,7 @@ function cargarDesdeServidor(){
   }).catch(function(){cargarDatos();migrarGrupIds();marcarGuardado('Sin conexion');renderCurrentView();renderPlan();actualizarStatus();});
 }
 function guardarEnServidor(){
+  if(SESSION&&SESSION.rol==='profesor')return;
   if(!WEB_APP_URL||!SESSION){guardarDatos();return;}
   var d={params:params,cuentas:cuentas,movimientos:movimientos,asientos:asientos,nextId:nextId,trabajadores:trabajadores,liquidaciones:liquidaciones,savedAt:new Date().toISOString()};
   fetch(WEB_APP_URL,{method:'POST',body:JSON.stringify({accion:'guardar',rut:SESSION.rut,datos:d})})
@@ -3394,6 +3569,8 @@ function guardarEnServidor(){
   .then(function(resp){if(resp.ok){marcarGuardado('Guardado '+new Date().toLocaleTimeString('es-CL'));guardarDatos();}else{marcarGuardado('Error: '+resp.error);}})
   .catch(function(){guardarDatos();marcarGuardado('Guardado local');});
 }
+
+setTimeout(function(){try{setLoginModo('alumno');}catch(e){}},0);
 </script>
 
 <!-- LOGIN -->
@@ -3401,19 +3578,20 @@ function guardarEnServidor(){
   <div style="background:#fff;border-radius:12px;padding:40px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.5)">
     <div style="text-align:center;margin-bottom:24px">
       <div style="font-size:36px">&#128202;</div>
-      <div style="font-size:18px;font-weight:bold;color:#1A1A2E;margin-top:6px">ERP Empresarial</div>
-      <div style="font-size:12px;color:#666;margin-top:4px">Sistema Integrado de Gestion Educativo</div>
+      <div id="login-title" style="font-size:18px;font-weight:bold;color:#1A1A2E;margin-top:6px">ERP Empresarial</div>
+      <div id="login-sub" style="font-size:12px;color:#666;margin-top:4px">Sistema Integrado de Gestion Educativo</div>
     </div>
+    <div style="display:flex;gap:6px;margin-bottom:12px"><button id="btn-login-alumno" onclick="setLoginModo('alumno')" style="flex:1;padding:8px;border:1px solid #3060C0;background:#3060C0;color:#fff;border-radius:5px;cursor:pointer">👨‍🎓 Alumno</button><button id="btn-login-profesor" onclick="setLoginModo('profesor')" style="flex:1;padding:8px;border:1px solid #aaa;background:#f5f5f5;color:#333;border-radius:5px;cursor:pointer">👨‍🏫 Profesor</button></div>
     <div id="login-err" style="display:none;background:#FFCCCC;border:1px solid #CC4444;border-radius:4px;padding:8px 12px;font-size:12px;color:#880000;margin-bottom:14px"></div>
     <div style="margin-bottom:14px">
-      <label style="font-size:11px;font-weight:bold;color:#333;display:block;margin-bottom:5px">RUT del alumno</label>
+      <label id="l-label-rut" style="font-size:11px;font-weight:bold;color:#333;display:block;margin-bottom:5px">RUT del alumno</label>
       <input id="l-rut" type="text" placeholder="Ej: 12.345.678-9" maxlength="12"
         style="width:100%;padding:10px 12px;border:2px solid #DDD;border-radius:6px;font-size:14px;box-sizing:border-box"
         oninput="fmtRut(this)">
     </div>
     <div style="margin-bottom:20px">
-      <label style="font-size:11px;font-weight:bold;color:#333;display:block;margin-bottom:3px">PIN (4 digitos antes del verificador)</label>
-      <div style="font-size:10px;color:#888;margin-bottom:6px">Ej: RUT 12.345.6789-0 tiene PIN: 6789</div>
+      <label id="l-label-pin" style="font-size:11px;font-weight:bold;color:#333;display:block;margin-bottom:3px">PIN (4 digitos antes del verificador)</label>
+      <div id="l-help-pin" style="font-size:10px;color:#888;margin-bottom:6px">Ej: RUT 12.345.6789-0 tiene PIN: 6789</div>
       <input id="l-pin" type="password" maxlength="4" placeholder="****"
         style="width:100%;padding:10px;border:2px solid #DDD;border-radius:6px;font-size:22px;letter-spacing:10px;text-align:center;box-sizing:border-box">
     </div>
