@@ -300,7 +300,7 @@ body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:12px;color:var(--t
     <div class="view-tab" id="tab-liquidaciones" onclick="navView('liquidaciones')">💰 Remuneraciones</div>
     <div class="view-tab" id="tab-trabajadores" onclick="navView('trabajadores')">👥 RR.HH.</div>
     <div class="view-tab" id="tab-catalogo" onclick="navView('catalogo')">📚 Catálogo Cuentas</div>
-<div class="view-tab" id="tab-profesor" onclick="navView('profesor')">👨‍🏫 Panel Profesor</div>
+<div class="view-tab" id="tab-profesor" onclick="navView('profesor')" style="display:none">👨‍🏫 Panel Profesor</div>
 <div class="view-tab" id="tab-mayor" onclick="navView('mayor')">📖 Libro Mayor</div>
     <div class="view-tab" id="tab-params" onclick="navView('params')">⚙ Parámetros</div>
   </div>
@@ -864,11 +864,46 @@ function actualizarReloj(){
 }
 setInterval(actualizarReloj,1000);
 
+
+// ═══════════════════════════════════════════════════════
+// SEGURIDAD DE ROLES
+// ═══════════════════════════════════════════════════════
+function esProfesorActivo(){
+  return !!(SESSION && SESSION.rol === 'profesor');
+}
+function limpiarPanelProfesor(){
+  PROF_DATA = {cursos:[],alumnos:[],documentos:[],tipos:[]};
+  var tb=document.getElementById('prof-tbody');
+  if(tb)tb.innerHTML='<tr><td colspan="6" style="padding:12px;text-align:center;color:#666">Panel disponible solo para docentes.</td></tr>';
+  var res=document.getElementById('prof-resumen');
+  if(res)res.textContent='0 carpeta(s) laboral(es)';
+}
+function aplicarPermisosRol(){
+  var tabProf=document.getElementById('tab-profesor');
+  if(tabProf)tabProf.style.display=esProfesorActivo()?'':'none';
+  if(!esProfesorActivo()){
+    limpiarPanelProfesor();
+    if(currentView==='profesor'){
+      currentView='balance';
+      VIEWS.forEach(function(v){
+        var el=document.getElementById('view-'+v); if(el)el.style.display=v==='balance'?'block':'none';
+        var tab=document.getElementById('tab-'+v); if(tab)tab.className='view-tab'+(v==='balance'?' active':'');
+      });
+      try{renderBalance();}catch(e){}
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════
 // NAVEGACIÓN
 // ═══════════════════════════════════════════════════════
 const VIEWS=['balance','diario','liquidaciones','trabajadores','catalogo','profesor','mayor','params'];
 function navView(id){
+  if(id==='profesor' && !esProfesorActivo()){
+    aplicarPermisosRol();
+    mostrarModalMsg('error','Acceso restringido','El Panel Profesor solo está disponible al iniciar sesión como docente.');
+    id='balance';
+  }
   currentView=id;
   VIEWS.forEach(v=>{
     const el=document.getElementById('view-'+v);
@@ -876,9 +911,11 @@ function navView(id){
     const tab=document.getElementById('tab-'+v);
     if(tab)tab.className='view-tab'+(v===id?' active':'');
   });
+  aplicarPermisosRol();
   renderCurrentView();
 }
 function renderCurrentView(){
+  if(currentView==='profesor' && !esProfesorActivo()){aplicarPermisosRol();return;}
   if(currentView==='balance')renderBalance();
   else if(currentView==='diario')renderDiario();
   else if(currentView==='liquidaciones')renderLiquidaciones();
@@ -2494,7 +2531,7 @@ function setLoginModo(modo){
 }
 
 function cargarPanelProfesor(){
-  if(!SESSION||SESSION.rol!=='profesor')return;
+  if(!esProfesorActivo()){limpiarPanelProfesor();aplicarPermisosRol();return;}
   var alert=document.getElementById('prof-alert');
   if(alert){alert.className='alert alert-ok show';alert.textContent='Cargando panel profesor...';}
   fetch(WEB_APP_URL,{method:'POST',body:JSON.stringify({accion:'panel_profesor_laboral',usuario:SESSION.usuario,clave:SESSION.clave})})
@@ -2520,6 +2557,7 @@ function poblarCursosProfesor(){
 function renderProfesor(){
   var tb=document.getElementById('prof-tbody');
   if(!tb)return;
+  if(!esProfesorActivo()){limpiarPanelProfesor();aplicarPermisosRol();return;}
   var cursoFiltro=(document.getElementById('prof-curso')||{}).value||'';
   var estadoFiltro=(document.getElementById('prof-estado')||{}).value||'';
   var q=((document.getElementById('prof-buscar')||{}).value||'').toLowerCase().trim();
@@ -2582,6 +2620,7 @@ function iniciarAppGitHub(){
     if(raw) SESSION=JSON.parse(raw);
   }catch(e){ SESSION=null; }
 
+  aplicarPermisosRol();
   if(SESSION && SESSION.rol==='profesor'){
     updNom();
     mostrarLogin(false);
@@ -2596,6 +2635,7 @@ function iniciarAppGitHub(){
     renderPlan();
     renderBalance();
     actualizarStatus();
+    aplicarPermisosRol();
     marcarGuardado('Ingrese con RUT y PIN');
     mostrarLogin(true);
   }
@@ -3536,7 +3576,9 @@ function doLoginAlumno(){
   .then(function(resp){
     btn.textContent='Ingresar al Sistema';btn.disabled=false;
     if(resp.ok){SESSION=resp.alumno;SESSION.rol='alumno';
-    try{sessionStorage.setItem('erp_session',JSON.stringify(SESSION));}catch(e){}mostrarLogin(false);updNom();cargarDesdeServidor();}
+    limpiarPanelProfesor();
+    try{sessionStorage.setItem('erp_session',JSON.stringify(SESSION));}catch(e){}
+    aplicarPermisosRol();mostrarLogin(false);updNom();cargarDesdeServidor();}
     else{err.textContent=resp.error||'Error';err.style.display='block';}
   }).catch(function(){btn.textContent='Ingresar al Sistema';btn.disabled=false;err.textContent='Error de conexion.';err.style.display='block';});
 }
@@ -3553,22 +3595,25 @@ function doLoginProfesor(){
     btn.textContent='Ingresar como Profesor';btn.disabled=false;
     if(resp.ok){SESSION=resp.profesor;SESSION.rol='profesor';SESSION.clave=clave;
       try{sessionStorage.setItem('erp_session',JSON.stringify(SESSION));}catch(e){}
-      mostrarLogin(false);updNom();navView('profesor');cargarPanelProfesor();
+      aplicarPermisosRol();mostrarLogin(false);updNom();navView('profesor');cargarPanelProfesor();
     }else{err.textContent=resp.error||'Error';err.style.display='block';}
   }).catch(function(){btn.textContent='Ingresar como Profesor';btn.disabled=false;err.textContent='Error de conexion.';err.style.display='block';});
 }
-function updNom(){var e=document.getElementById('usr-nom');if(e&&SESSION){if(SESSION.rol==='profesor')e.textContent=(SESSION.nombre||SESSION.usuario)+' (Profesor)';else e.textContent=SESSION.nombre+' ('+SESSION.rut+')';}}
+function updNom(){var e=document.getElementById('usr-nom');if(!e)return;if(SESSION){if(SESSION.rol==='profesor')e.textContent=(SESSION.nombre||SESSION.usuario)+' (Profesor)';else e.textContent=SESSION.nombre+' ('+SESSION.rut+')';}else{e.textContent='';}}
 function cerrarSesion(){
   if(!confirm('¿Cerrar sesión?'))return;
   SESSION=null;
   try{localStorage.removeItem('erp_session');}catch(e){}
   try{sessionStorage.removeItem('erp_session');}catch(e){}
   try{document.getElementById('l-rut').value='';document.getElementById('l-pin').value='';}catch(e){}
-  resetearDatos();renderPlan();renderBalance();actualizarStatus();updNom();
+  LOGIN_MODO='alumno';
+  limpiarPanelProfesor();
+  resetearDatos();renderPlan();renderBalance();actualizarStatus();updNom();aplicarPermisosRol();
   marcarGuardado('Sesión cerrada');
   mostrarLogin(true);
 }
 function cargarDesdeServidor(){
+  aplicarPermisosRol();
   if(SESSION&&SESSION.rol==='profesor'){navView('profesor');cargarPanelProfesor();return;}
   if(!WEB_APP_URL||!SESSION){cargarDatos();migrarGrupIds();renderCurrentView();renderPlan();actualizarStatus();return;}
   marcarGuardado('Cargando...');
