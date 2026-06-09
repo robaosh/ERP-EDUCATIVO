@@ -619,6 +619,20 @@ const DATOS_INICIALES={
 };
 
 let params,cuentas,movimientos,asientos,nextId,trabajadores,liquidaciones;
+
+// Evita errores cuando una cuenta/alumno queda con datos incompletos o antiguos.
+// GitHub carga el HTML fuera de Apps Script, por eso debemos asegurar siempre
+// que las estructuras principales sean arreglos/objetos válidos antes de renderizar.
+function asegurarEstado(){
+  if(!params || typeof params!=='object') params={...DATOS_INICIALES.params};
+  if(!Array.isArray(cuentas)) cuentas=[];
+  if(!Array.isArray(movimientos)) movimientos=[];
+  if(!Array.isArray(asientos)) asientos=[];
+  if(!Number.isFinite(nextId)) nextId=1;
+  if(!Array.isArray(trabajadores)) trabajadores=[];
+  if(!liquidaciones || typeof liquidaciones!=='object' || Array.isArray(liquidaciones)) liquidaciones={};
+}
+
 let autoSaveTimer=null;
 let currentView='balance';
 
@@ -652,6 +666,7 @@ function resetearDatos(){
 }
 
 function migrarGrupIds(){
+  asegurarEstado();
   // Asignar grupId a asientos que no lo tienen agrupando por comp o fecha+glosaGral
   var sinGrup=asientos.filter(function(a){return !a.grupId;});
   if(!sinGrup.length)return;
@@ -675,6 +690,7 @@ function migrarGrupIds(){
 
 
 function guardarDatos(){
+  asegurarEstado();
   try{
     const d={params,cuentas,movimientos,asientos,nextId,trabajadores,liquidaciones,savedAt:new Date().toISOString()};
     localStorage.setItem(STORAGE_KEY,JSON.stringify(d));
@@ -915,6 +931,7 @@ function navView(id){
   renderCurrentView();
 }
 function renderCurrentView(){
+  asegurarEstado();
   if(currentView==='profesor' && !esProfesorActivo()){aplicarPermisosRol();return;}
   if(currentView==='balance')renderBalance();
   else if(currentView==='diario')renderDiario();
@@ -939,6 +956,7 @@ const TIPO_COL={
 };
 
 function renderPlan(){
+  asegurarEstado();
   const buscar=(document.getElementById('buscar-cuenta')||{value:''}).value.toLowerCase();
   const filtradas=cuentas.filter(c=>
     c.nombre.toLowerCase().includes(buscar)||
@@ -1098,6 +1116,7 @@ function eliminarCuenta(cod){
 // BALANCE GENERAL 8 COLUMNAS
 // ═══════════════════════════════════════════════════════
 function getSaldo(c){
+  asegurarEstado();
   // Sumar movimientos propios + asientos del diario
   const mov=movimientos.find(m=>m.cod===c.cod)||{debe:0,haber:0};
   const asDebe=asientos.filter(a=>a.codCuenta===c.cod).reduce((s,a)=>s+a.debe,0);
@@ -1117,6 +1136,7 @@ function getSaldo(c){
 }
 
 function renderBalance(){
+  asegurarEstado();
   const showCod=document.getElementById('chk-codigo').checked;
   const nivel=parseInt(document.getElementById('sel-nivel').value)||4;
   const tbody=document.getElementById('balance-tbody');
@@ -2048,6 +2068,7 @@ function calcLiq(t){
 }
 
 function renderLiquidaciones(){
+  asegurarEstado();
   const el=document.getElementById('liq-periodo');
   if(el)el.textContent=params.mes+' '+params.anio;
   let html='',tB=0,tA=0,tS=0,tBs=0,tI=0,tL=0;
@@ -2115,6 +2136,7 @@ function generarAsientosRem(){
 // TRABAJADORES
 // ═══════════════════════════════════════════════════════
 function renderTrabajadores(){
+  asegurarEstado();
   let html='';
   trabajadores.forEach((t,i)=>{
     const eb=t.estado==='Activo'?'background:#CCFFCC;color:#005500':t.estado==='Inactivo'?'background:#FFCCCC;color:#880000':'background:#FFEECC;color:#664400';
@@ -3620,12 +3642,13 @@ function cargarDesdeServidor(){
   fetch(WEB_APP_URL,{method:'POST',body:JSON.stringify({accion:'cargar',rut:SESSION.rut})})
   .then(function(r){return r.json();})
   .then(function(resp){
-    if(resp.ok&&resp.datos){var d=resp.datos;params=d.params||params;cuentas=d.cuentas||[];movimientos=d.movimientos||[];asientos=d.asientos||[];nextId=d.nextId||1;trabajadores=d.trabajadores||[];liquidaciones=d.liquidaciones||{};migrarGrupIds();marcarGuardado('Cargado: '+resp.ultima_mod);}
+    if(resp.ok&&resp.datos){var d=resp.datos;params=d.params||params;cuentas=Array.isArray(d.cuentas)?d.cuentas:[];movimientos=Array.isArray(d.movimientos)?d.movimientos:[];asientos=Array.isArray(d.asientos)?d.asientos:[];nextId=d.nextId||1;trabajadores=Array.isArray(d.trabajadores)?d.trabajadores:[];liquidaciones=(d.liquidaciones&&typeof d.liquidaciones==='object'&&!Array.isArray(d.liquidaciones))?d.liquidaciones:{};asegurarEstado();migrarGrupIds();marcarGuardado('Cargado: '+resp.ultima_mod);}
     else{resetearDatos();marcarGuardado('Alumno nuevo');}
     updNom();renderCurrentView();renderPlan();actualizarStatus();
   }).catch(function(){cargarDatos();migrarGrupIds();marcarGuardado('Sin conexion');renderCurrentView();renderPlan();actualizarStatus();});
 }
 function guardarEnServidor(){
+  asegurarEstado();
   if(SESSION&&SESSION.rol==='profesor')return;
   if(!WEB_APP_URL||!SESSION){guardarDatos();return;}
   var d={params:params,cuentas:cuentas,movimientos:movimientos,asientos:asientos,nextId:nextId,trabajadores:trabajadores,liquidaciones:liquidaciones,savedAt:new Date().toISOString()};
