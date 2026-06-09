@@ -684,16 +684,21 @@ function autoGuardar(){
   if(autoSaveTimer)clearTimeout(autoSaveTimer);
   autoSaveTimer=setTimeout(function(){
     guardarDatos();
-    if(SESSION){
+    // GitHub Pages no tiene google.script.run. Todo guardado remoto debe ir por fetch() al Web App.
+    if(SESSION&&SESSION.rut&&WEB_APP_URL){
       var d={params:params,cuentas:cuentas,movimientos:movimientos,
         asientos:asientos,nextId:nextId,trabajadores:trabajadores,
         liquidaciones:liquidaciones,savedAt:new Date().toISOString()};
-      google.script.run
-        .withSuccessHandler(function(r){
-          if(r&&r.ok)marcarGuardado('Guardado '+new Date().toLocaleTimeString('es-CL'));
-        })
-        .withFailureHandler(function(){marcarGuardado('Error al guardar');})
-        .guardarDatosAlumno(SESSION.rut,d);
+      fetch(WEB_APP_URL,{
+        method:'POST',
+        body:JSON.stringify({accion:'guardar',rut:SESSION.rut,datos:d})
+      })
+      .then(function(r){return r.json();})
+      .then(function(r){
+        if(r&&r.ok)marcarGuardado('Guardado '+new Date().toLocaleTimeString('es-CL'));
+        else marcarGuardado('Error al guardar: '+((r&&r.error)||'sin detalle'));
+      })
+      .catch(function(e){marcarGuardado('Error al guardar: '+e.message);});
     }
   },1500);
 }
