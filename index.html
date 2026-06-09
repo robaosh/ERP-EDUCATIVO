@@ -247,6 +247,7 @@ body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:12px;color:var(--t
       <input type="file" accept=".json" onchange="importarJSON(this)" style="display:none">
     </label>
     <button class="topbar-btn" style="background:rgba(150,0,0,.3)" onclick="confirmarBorrar()">🗑 Borrar</button>
+    <button class="topbar-btn" style="background:rgba(120,0,0,.45);border-color:rgba(255,150,150,.5)" onclick="cerrarSesion()">🚪 Cerrar sesión</button>
   </div>
 </div>
 
@@ -269,7 +270,7 @@ body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:12px;color:var(--t
   <div class="toolbar-sep"></div>
   <button class="toolbar-btn" onclick="renderCurrentView()">🔄 Actualizar</button>
   <button class="toolbar-btn" onclick="navView('params')">⚙ Parámetros</button>
-  <button class="toolbar-btn" style="margin-left:auto;background:var(--blue);color:#fff;border-color:#1040A0" onclick="cerrar()">Cerrar</button>
+  <button class="toolbar-btn" style="margin-left:auto;background:#880000;color:#fff;border-color:#660000" onclick="cerrarSesion()">🚪 Cerrar sesión</button>
 </div>
 
 <!-- CUERPO -->
@@ -2407,9 +2408,10 @@ function nuevoPeriodo(){
 function iniciarAppGitHub(){
   actualizarReloj();
 
-  // Intentar recuperar sesión guardada en el navegador
+  // Intentar recuperar sesión solo mientras la pestaña esté abierta.
+  // No usamos localStorage, para que al cerrar la pestaña vuelva a pedir PIN.
   try{
-    var raw=sessionStorage.getItem('erp_session') || localStorage.getItem('erp_session');
+    var raw=sessionStorage.getItem('erp_session');
     if(raw) SESSION=JSON.parse(raw);
   }catch(e){ SESSION=null; }
 
@@ -3357,18 +3359,20 @@ function doLogin(){
   .then(function(r){return r.json();})
   .then(function(resp){
     btn.textContent='Ingresar al Sistema';btn.disabled=false;
-    if(resp.ok){SESSION=resp.alumno;try{localStorage.setItem('erp_session',JSON.stringify(SESSION));}catch(e){}
+    if(resp.ok){SESSION=resp.alumno;
     try{sessionStorage.setItem('erp_session',JSON.stringify(SESSION));}catch(e){}mostrarLogin(false);updNom();cargarDesdeServidor();}
     else{err.textContent=resp.error||'Error';err.style.display='block';}
   }).catch(function(){btn.textContent='Ingresar al Sistema';btn.disabled=false;err.textContent='Error de conexion.';err.style.display='block';});
 }
 function updNom(){var e=document.getElementById('usr-nom');if(e&&SESSION)e.textContent=SESSION.nombre+' ('+SESSION.rut+')';}
 function cerrarSesion(){
-  if(!confirm('Cerrar sesión?'))return;
+  if(!confirm('¿Cerrar sesión?'))return;
   SESSION=null;
   try{localStorage.removeItem('erp_session');}catch(e){}
   try{sessionStorage.removeItem('erp_session');}catch(e){}
+  try{document.getElementById('l-rut').value='';document.getElementById('l-pin').value='';}catch(e){}
   resetearDatos();renderPlan();renderBalance();actualizarStatus();updNom();
+  marcarGuardado('Sesión cerrada');
   mostrarLogin(true);
 }
 function cargarDesdeServidor(){
