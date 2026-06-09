@@ -2439,6 +2439,17 @@ function nuevoPeriodo(){
 
 
 
+// Helpers seguros para pintar texto en el Panel Profesor
+function esc(v){
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function(ch){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+  });
+}
+function escAttr(v){
+  return esc(v).replace(/`/g,'&#96;');
+}
+
+
 // ═══════════════════════════════════════════════════════
 // PANEL PROFESOR
 // ═══════════════════════════════════════════════════════
@@ -2462,7 +2473,7 @@ function setLoginModo(modo){
   if(sub)sub.textContent=isProf?'Panel de revisión de entregas laborales':'Sistema Integrado de Gestion Educativo';
   if(lr)lr.textContent=isProf?'Usuario o correo del profesor':'RUT del alumno';
   if(lp)lp.textContent=isProf?'Clave del profesor':'PIN (4 digitos antes del verificador)';
-  if(help)help.textContent=isProf?'Clave inicial sugerida: PROFESOR2025. Luego puede cambiarse en la hoja Profesores.':'Ej: RUT 12.345.6789-0 tiene PIN: 6789';
+  if(help)help.textContent=isProf?'Clave inicial sugerida: 2025. Luego puede cambiarse en la hoja Profesores.':'Ej: RUT 12.345.6789-0 tiene PIN: 6789';
   if(rut){rut.value='';rut.placeholder=isProf?'profesor':'Ej: 12.345.678-9';rut.maxLength=isProf?60:12;}
   if(pin){pin.value='';pin.placeholder=isProf?'Clave':'****';pin.style.letterSpacing=isProf?'0':'10px';}
   if(btn)btn.textContent=isProf?'Ingresar como Profesor':'Ingresar al Sistema';
